@@ -172,20 +172,15 @@ export class ImportPanel {
     const pe  = this.photoEditor;
     const img = new Image();
     img.onload = () => {
-      if (typeof pe.setImage === 'function') {
-        pe.setImage(img, { fileName: fileName ?? null, mimeType: mimeType ?? null, fileSize: fileSize ?? null }).then(() => {
+      pe.setImage(img, { fileName: fileName ?? null, mimeType: mimeType ?? null, fileSize: fileSize ?? null })
+        .then(() => {
           onDone?.();
           if (el) this._setStatus(el, '✓ Изображение загружено');
+        })
+        .catch(() => {
+          if (el) this._setStatus(el, 'Ошибка загрузки', true);
+          onDone?.();
         });
-      } else {
-        pe.originalFileName = fileName ?? null;
-        pe.originalMimeType = mimeType ?? null;
-        pe.originalFileSize = fileSize ?? null;
-        pe.commitImage(img);
-        pe.activeTool?.onContainerResize?.();
-        onDone?.();
-        if (el) this._setStatus(el, '✓ Изображение загружено');
-      }
     };
     img.onerror = () => { if (el) this._setStatus(el, 'Ошибка загрузки', true); onDone?.(); };
     img.src = src;
