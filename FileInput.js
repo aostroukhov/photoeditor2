@@ -34,21 +34,14 @@ export class FileInput {
 		this.originalFile = this.fileInput.files[0];
 		if (!this.originalFile) { this._toggleButtons(false); return; }
 
-		// Сохраняем имя и тип в photoEditor
-		this.photoEditor.originalFileName = this.originalFile.name;
-		this.photoEditor.originalMimeType = this.originalFile.type || 'image/png';
-
-		const reader    = new FileReader();
-		reader.onload   = (e) => {
-			const img   = new Image();
-			img.onload  = () => {
-				this.photoEditor.commitImage(img);
-				this._toggleButtons(true);
-			};
-			img.src = e.target.result;
-		};
-		reader.onerror = () => this.onError('Ошибка чтения файла');
-		reader.readAsDataURL(this.originalFile);
+		// Blob → blob: URL → <img>: одно декодирование, без base64 в памяти
+		this.photoEditor.setImageBlob(this.originalFile, {
+			fileName: this.originalFile.name,
+			mimeType: this.originalFile.type || 'image/png',
+			fileSize: this.originalFile.size,
+		})
+			.then(() => this._toggleButtons(true))
+			.catch(() => this.onError('Ошибка чтения файла'));
 	}
 
 

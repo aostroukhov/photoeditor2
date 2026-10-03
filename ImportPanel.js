@@ -1,9 +1,8 @@
 /**
- * ImportPanel v3.5
+ * ImportPanel — загрузка изображения из файла или буфера обмена (кнопка / Ctrl+V).
  *
- * Изменения v3.5:
- *  • При загрузке файла сохраняет originalFileName и originalMimeType
- *    в photoEditor для последующего использования при экспорте.
+ * Изображение передаётся редактору как Blob (PhotoEditor.setImageBlob): одно
+ * декодирование через blob: URL, без FileReader и base64 в памяти.
  *
  * Класс: pe-panel pe-panel--import
  * Регистрируется в DialogManager как group='utility', id='import'
@@ -64,9 +63,7 @@ export class ImportPanel {
           const blob = item.getAsFile();
           if (blob) {
             e.preventDefault();
-            this._buildClipboardFileName(blob).then((name) => {
-              this._loadBlob(blob, el, null, name, blob.type);
-            });
+            this._loadBlob(blob, el, null, null, blob.type);
             return;
           }
         }
@@ -116,8 +113,7 @@ export class ImportPanel {
         for (const type of item.types) {
           if (!type.startsWith('image/')) continue;
           const blob = await item.getType(type);
-          const name = await this._buildClipboardFileName(blob);
-          await this._loadBlob(blob, el, null, name, type);
+          await this._loadBlob(blob, el, null, null, type);
           return;
         }
       }
@@ -128,61 +124,37 @@ export class ImportPanel {
   }
 
   _loadFile(file, el) {
-    const reader = new FileReader();
-    reader.onload = (ev) => this._applyDataURL(ev.target.result, el, null, file.name, file.type, file.size);
-    reader.readAsDataURL(file);
+    if (!file.type.startsWith('image/')) { this._setStatus(el, 'Это не изображение', true); return; }
+    this._loadBlob(file, el, null, file.name, file.type);
   }
 
   /**
-   * Строит содержательное имя файла для вставки из буфера обмена.
-   * Формат: clipboard-WxH-YYYY-MM-DD.ext
-   * Размеры читаются из blob через временный Image (без blob URL в DOM).
-   * Возвращает Promise<string>.
+   * Имя для вставки из буфера: clipboard-WxH-YYYY-MM-DD.ext
+   * (размеры — из уже загруженного изображения, без повторного декодирования).
    */
-  _buildClipboardFileName(blob) {
-    return new Promise((resolve) => {
-      const mime = blob.type || 'image/png';
-      const ext  = mime.split('/')[1] || 'png';
-      const d    = new Date();
-      const date = d.getFullYear()
-                 + '-' + String(d.getMonth() + 1).padStart(2, '0')
-                 + '-' + String(d.getDate()).padStart(2, '0');
-
-      // Читаем размеры через FileReader → dataURL → Image
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        const img = new Image();
-        img.onload  = () => resolve('clipboard-' + img.naturalWidth + 'x' + img.naturalHeight + '-' + date + '.' + ext);
-        img.onerror = ()  => resolve('clipboard-' + date + '.' + ext);
-        img.src = ev.target.result;
-      };
-      reader.onerror = () => resolve('clipboard-' + date + '.' + ext);
-      reader.readAsDataURL(blob);
-    });
+  _clipboardFileName(img, mime) {
+    const ext  = (mime || 'image/png').split('/')[1] || 'png';
+    const d    = new Date();
+    const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const size = img?.naturalWidth ? `${img.naturalWidth}x${img.naturalHeight}-` : '';
+    return `clipboard-${size}${date}.${ext}`;
   }
 
-  _loadBlob(blob, el, onDone, fileName, mimeType) {
-    const reader = new FileReader();
-    reader.onload  = (ev) => this._applyDataURL(ev.target.result, el, onDone, fileName, mimeType ?? blob.type, blob.size);
-    reader.onerror = ()   => { if (el) this._setStatus(el, 'Ошибка чтения', true); onDone?.(); };
-    reader.readAsDataURL(blob);
-  }
-
-  _applyDataURL(src, el, onDone, fileName, mimeType, fileSize) {
-    const pe  = this.photoEditor;
-    const img = new Image();
-    img.onload = () => {
-      pe.setImage(img, { fileName: fileName ?? null, mimeType: mimeType ?? null, fileSize: fileSize ?? null })
-        .then(() => {
-          onDone?.();
-          if (el) this._setStatus(el, '✓ Изображение загружено');
-        })
-        .catch(() => {
-          if (el) this._setStatus(el, 'Ошибка загрузки', true);
-          onDone?.();
-        });
-    };
-    img.onerror = () => { if (el) this._setStatus(el, 'Ошибка загрузки', true); onDone?.(); };
-    img.src = src;
+  /**
+   * Загружает Blob в редактор одним декодированием (blob: URL), без base64.
+   * fileName === null → имя для буфера обмена строится по размерам изображения.
+   */
+  async _loadBlob(blob, el, onDone, fileName, mimeType) {
+    const pe = this.photoEditor;
+    try {
+      const mime = mimeType ?? blob.type;
+      const img  = await pe.setImageBlob(blob, { fileName: fileName ?? null, mimeType: mime, fileSize: blob.size });
+      if (fileName == null) pe.originalFileName = this._clipboardFileName(img, mime);
+      if (el) this._setStatus(el, '✓ Изображение загружено');
+    } catch {
+      if (el) this._setStatus(el, 'Ошибка загрузки', true);
+    } finally {
+      onDone?.();
+    }
   }
 }

@@ -129,30 +129,6 @@ export class ExportPanel {
   // ── Приватная логика экспорта ───────────────────────────────────────────────
 
   /**
-   * Получает итоговый canvas для экспорта.
-   *
-   * Если в OverlayTool есть незакоммиченные оверлеи — рендерит через него,
-   * чтобы они попали в экспорт до вызова apply().
-   * Иначе рисует pe.img на чистый canvas.
-   *
-   * @returns {HTMLCanvasElement}
-   * @throws {Error} Если pe.img не задан.
-   */
-  #getResultCanvas() {
-    const pe = this.photoEditor;
-    if (!pe.img) throw new Error('Нет изображения для экспорта');
-
-    const ovTool = pe.tools?.overlay;
-    if (ovTool && ovTool.overlays.length > 0) return ovTool.renderToCanvas();
-
-    const canvas = document.createElement('canvas');
-    canvas.width  = pe.img.naturalWidth;
-    canvas.height = pe.img.naturalHeight;
-    canvas.getContext('2d').drawImage(pe.img, 0, 0);
-    return canvas;
-  }
-
-  /**
    * Строит имя файла для скачивания.
    * Приоритет: originalFileName редактора (с заменой расширения).
    * Фоллбэк: «YYYY-MM-DD_HH-MM.ext».
@@ -194,7 +170,7 @@ export class ExportPanel {
 
     let canvas;
     try {
-      canvas = this.#getResultCanvas();
+      canvas = this.photoEditor.getResultCanvas();
     } catch (e) {
       setStatus('Ошибка: ' + e.message, true);
       unlock();

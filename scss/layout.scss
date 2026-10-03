@@ -1,14 +1,11 @@
 // ─── PhotoEditor — главный SCSS-файл ─────────────────────────────────────────
 // Собирает все части.
-// CSS и MAP генерируются вручную при обновлении версии — не коммитить.
+// layout.css собирается `npm run css` и коммитится (CI проверяет актуальность).
 
-@import 'variables';
-@import 'mixins';
-@import 'workspace';
-@import 'toolbar';
-@import 'buttons';
-@import 'panels';
-@import 'plugins';  // Панели плагин-инструментов (Plugin API)
+@use 'workspace';
+@use 'toolbar';
+@use 'buttons';
+@use 'panels';
 
 // Совместимость: старые классы-псевдонимы для pe-workspace / pe-toolbar
 // чтобы не ломать существующие шаблоны

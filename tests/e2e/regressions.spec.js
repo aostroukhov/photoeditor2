@@ -134,3 +134,17 @@ test('после undo активный инструмент возвращает
   await page.waitForFunction(() => window.editor.tools.mask.isActive === true);
   await expect(page.locator('.pe-panel--mask')).toBeVisible();
 });
+
+test('setImageBlob: импорт без base64, blob: URL и запись в историю', async ({ page }) => {
+  await openEditor(page);
+  const info = await page.evaluate(async () => {
+    const cv = document.createElement('canvas'); cv.width = 320; cv.height = 200;
+    cv.getContext('2d').fillStyle = '#123456'; cv.getContext('2d').fillRect(0, 0, 320, 200);
+    const blob = await new Promise(r => cv.toBlob(r, 'image/png'));
+    const img  = await window.editor.setImageBlob(blob, { fileName: 'test.png' });
+    return { src: img.src.slice(0, 5), w: img.naturalWidth, name: window.editor.originalFileName };
+  });
+  expect(info).toEqual({ src: 'blob:', w: 320, name: 'test.png' });
+  await expect(page.locator('.photoeditor__info')).toHaveText('320×200');
+  await expect(page.locator('[data-action="undo"]')).toBeEnabled();
+});

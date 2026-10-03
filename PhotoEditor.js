@@ -40,7 +40,7 @@ import { canvasToBlob, blobToImage } from './canvasUtils.js';
  *
  * Публичные методы (внешний API):
  *   open(), close(), requestClose()
- *   setImage(), clearImage()
+ *   setImage(), setImageBlob(), clearImage(), getResultCanvas()
  *   bindToFileInput()
  *   syncToolButtons()
  *   commitImage()
@@ -366,6 +366,45 @@ export class PhotoEditor {
       img.onerror = reject;
       img.src     = src;
     });
+  }
+
+  /**
+   * Загружает изображение из Blob/File без base64: blob → blob: URL → <img>.
+   * Редактор владеет URL (см. #releaseImage). Снапшот в историю — тем же blob,
+   * если это PNG, иначе — через canvas (JPEG нельзя хранить как lossless-состояние).
+   *
+   * @param {Blob} blob
+   * @param {{ fileName?: string, mimeType?: string, fileSize?: number }} [meta]
+   * @returns {Promise<HTMLImageElement>}
+   */
+  async setImageBlob(blob, { fileName = null, mimeType = null, fileSize = null } = {}) {
+    if (!(blob instanceof Blob) || !blob.size) throw new Error('setImageBlob: пустой blob');
+    const { img, url } = await blobToImage(blob);
+    this.#ownedUrls.set(img, url);
+    this.#setCurrentImage(img);
+    this.originalFileName = fileName ?? this.originalFileName;
+    this.originalMimeType = mimeType ?? blob.type ?? this.originalMimeType;
+    this.originalFileSize = fileSize ?? blob.size;
+    if (blob.type === 'image/png') this.#history.push(blob).then(() => this.#updateHistoryUI());
+    else this.#pushHistory();
+    return img;
+  }
+
+  /**
+   * Итоговое изображение для экспорта: pe.img + незакоммиченные оверлеи
+   * (если OverlayTool активен). Используется ExportPanel и сохранением при закрытии.
+   * @returns {HTMLCanvasElement}
+   * @throws {Error} если изображения нет
+   */
+  getResultCanvas() {
+    if (!this.img) throw new Error('Нет изображения для экспорта');
+    const ovTool = this.tools?.overlay;
+    if (ovTool?.overlays?.length > 0) return ovTool.renderToCanvas();
+    const canvas  = document.createElement('canvas');
+    canvas.width  = this.img.naturalWidth;
+    canvas.height = this.img.naturalHeight;
+    canvas.getContext('2d').drawImage(this.img, 0, 0);
+    return canvas;
   }
 
   /**
@@ -972,16 +1011,7 @@ export class PhotoEditor {
    */
   async #exportToTarget() {
     if (!this.export || !this.img) return;
-    const ovTool = this.tools?.overlay;
-    let canvas;
-    if (ovTool && ovTool.overlays?.length > 0) {
-      canvas = ovTool.renderToCanvas();
-    } else {
-      canvas = document.createElement('canvas');
-      canvas.width  = this.img.naturalWidth;
-      canvas.height = this.img.naturalHeight;
-      canvas.getContext('2d').drawImage(this.img, 0, 0);
-    }
+    const canvas = this.getResultCanvas();
     // Вызываем export(canvas) и ждём Promise если он возвращается.
     // Для синхронных export-колбэков (например, fileInput._exportToInput)
     // это эквивалентно немедленному resolve.

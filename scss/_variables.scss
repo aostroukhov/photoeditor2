@@ -2,7 +2,8 @@
 // Базовый font-size задаётся на .photoeditor__container = 16px.
 // Все размеры внутри компонента — в em относительно этого элемента.
 
-// Цвета (CSS-переменные для возможности переопределения снаружи)
+// Цвета (CSS-переменные; выводятся на .photoeditor__container в _workspace,
+// снаружи можно переопределить)
 $pe-vars: (
   --pe-text:         #fff,
   --pe-bg:           rgba(0,0,0,.92),
@@ -23,15 +24,22 @@ $pe-transition: .15s ease;
 
 // Тулбар
 $toolbar-btn-min-w:  3.5em;   // 56px
-$toolbar-icon-size:  1.5em;   // 24px
 $toolbar-label-size: 0.625em; // 10px
+
+// Слои (z-index) — единая карта
+$z-container:     117;  // корень редактора поверх страницы; дублируется в EditorConfig.editor.zIndex
+$z-img-info:      2;    // подпись размера
+$z-canvas:        10;   // canvas-оверлеи инструментов
+$z-busy:          5;    // спиннер занятости (внутри img-container)
+$z-panel:         20;   // панели инструментов
+$z-toolbar:       30;   // нижний тулбар
+$z-dialog:        1000; // модальный диалог закрытия
 
 // Панели
 $panel-radius:  1em;
 $panel-pad-v:   0.75em;
 $panel-pad-h:   1em;
 $panel-gap:     0.625em;
-$panel-z:       20;
 
 // Кнопка
 $btn-radius:    0.375em;
