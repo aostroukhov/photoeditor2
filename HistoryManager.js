@@ -89,6 +89,29 @@ function dbGetAll(store, query) {
  * Cursor-подход обязателен: несколько await в одной транзакции вызывают
  * её автозавершение между запросами, после чего store становится недоступен.
  */
+/**
+ * Удаляет записи ДРУГИХ сессий старше maxAgeMs — хвосты от вкладок, закрытых
+ * аварийно (destroy() не успел выполниться). Иначе база растёт бесконечно.
+ */
+function purgeStaleSessions(db, currentSessionId, maxAgeMs) {
+  return new Promise((resolve) => {
+    const threshold = Date.now() - maxAgeMs;
+    const t     = db.transaction(STORE, 'readwrite');
+    const store = t.objectStore(STORE);
+    const req   = store.openCursor();
+    req.onsuccess = (e) => {
+      const cursor = e.target.result;
+      if (!cursor) return;
+      const r = cursor.value;
+      if (r.sessionId !== currentSessionId && (r.ts ?? 0) < threshold) cursor.delete();
+      cursor.continue();
+    };
+    t.oncomplete = () => resolve();
+    t.onerror    = () => resolve();   // чистка best-effort: ошибка не должна ломать историю
+    t.onabort    = () => resolve();
+  });
+}
+
 function clearSession(db, sessionId) {
   return new Promise((resolve, reject) => {
     const t     = db.transaction(STORE, 'readwrite');
@@ -214,7 +237,7 @@ export class HistoryManager {
     this._index      = [];         // [{id, pos, size}] — загруженный индекс сессии
     this._totalSize  = 0;          // суммарный размер в байтах
     this._listeners  = [];
-    this._pushing    = false;      // мьютекс для push
+    this._queue      = Promise.resolve(); // последовательная очередь push()
     this._destroyed  = false;      // флаг уничтожения — блокирует любые операции
     this._dbPromise  = this._init();
   }
@@ -225,6 +248,7 @@ export class HistoryManager {
     try {
       this._db      = await openDB();
       this._dbReady = true;
+      await purgeStaleSessions(this._db, this._sessionId, CFG.staleSessionMaxAgeMs);
       await this._loadIndex();
     } catch (err) {
       console.warn('[HistoryManager] IndexedDB недоступен, история отключена:', err);
@@ -254,9 +278,10 @@ export class HistoryManager {
   get maxStates(){ return CFG.maxStates; }
 
   onUpdate(cb)   { this._listeners.push(cb); return () => { this._listeners = this._listeners.filter(l => l !== cb); }; }
-  _notify()      { for (const l of this._listeners) { try { l(this._snapshot()); } catch {} } }
+  _notify()      { for (const l of this._listeners) { try { l(this.snapshot()); } catch {} } }
 
-  _snapshot() {
+  /** Текущее состояние истории для UI (кнопки undo/redo, бейдж). */
+  snapshot() {
     return {
       canUndo:    this.canUndo,
       canRedo:    this.canRedo,
@@ -270,19 +295,24 @@ export class HistoryManager {
 
   /**
    * Сохраняет снапшот после apply().
-   * @param {HTMLCanvasElement} canvas
+   *
+   * Вызовы выполняются строго последовательно через очередь промисов:
+   * два быстрых commitImage() дают два состояния. Раньше стоял мьютекс,
+   * который молча отбрасывал конкурентный push — состояние терялось.
+   *
+   * @param {HTMLCanvasElement|OffscreenCanvas} canvas
+   * @returns {Promise<void>}
    */
-  async push(canvas) {
-    if (this._destroyed) return;  // быстрый выход до await
-    await this._ready();
-    if (!this._dbReady || !this._db) return; // уже уничтожен
-    if (this._pushing) return;
-    this._pushing = true;
-    try {
+  push(canvas) {
+    if (this._destroyed) return Promise.resolve();  // быстрый выход до await
+    const run = async () => {
+      await this._ready();
+      if (this._destroyed || !this._dbReady || !this._db) return; // уничтожен, пока ждали
       await this._pushInternal(canvas);
-    } finally {
-      this._pushing = false;
-    }
+    };
+    const p = this._queue.then(run, run);
+    this._queue = p.catch(() => {});
+    return p;
   }
 
   async _pushInternal(canvas, retryOnQuota = true) {
@@ -382,11 +412,26 @@ export class HistoryManager {
     this._notify();
   }
 
-  /** Очищает и закрывает соединение с БД. */
+  /**
+   * Очищает сессию и закрывает соединение с БД.
+   *
+   * Порядок важен: сначала дождаться очереди push и очистить записи,
+   * и только потом снять _dbReady. Раньше флаг снимался первым, clear()
+   * выходил по guard, и записи сессии оставались в IndexedDB навсегда.
+   */
   async destroy() {
-    this._destroyed = true;  // быстрый флаг — проверяется до любого await
+    if (this._destroyed) return;
+    this._destroyed = true;  // блокирует новые push до любого await
+    await this._queue.catch(() => {});
+    await this._ready();
+    if (this._dbReady && this._db) {
+      try { await clearSession(this._db, this._sessionId); }
+      catch (err) { console.warn('[HistoryManager] destroy: не удалось очистить сессию', err); }
+    }
+    this._index     = [];
+    this._cursor    = -1;
+    this._totalSize = 0;
     this._dbReady   = false;
-    await this.clear();
     this._db?.close();
     this._db = null;
   }

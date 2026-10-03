@@ -876,7 +876,7 @@ export class PhotoEditor {
 
     if (e.key === 'Escape') {
       // Если открыты диалоги инструментов — закрываем только их, не редактор
-      if (this.dialogs && this.dialogs._active.size > 0) {
+      if (this.dialogs?.hasOpen()) {
         this.dialogs.closeAll();
         e.preventDefault();
         return;
@@ -1080,7 +1080,7 @@ export class PhotoEditor {
   /** Синхронизирует состояние кнопок undo/redo и бейдж с глубиной истории. */
   #updateHistoryUI() {
     if (!this.container) return;
-    const s       = this.#history._snapshot();
+    const s       = this.#history.snapshot();
     const undoBtn = this.container.querySelector('[data-action="undo"]');
     const redoBtn = this.container.querySelector('[data-action="redo"]');
     const badge   = this.container.querySelector('.pe-history-badge');

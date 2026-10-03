@@ -105,6 +105,9 @@ export class DialogManager {
 
   isOpen(id) { return this._active.has(id); }
 
+  /** Есть ли хоть одна открытая панель. */
+  hasOpen() { return this._active.size > 0; }
+
 
   // ── Приватные ──────────────────────────────────────────────────────────────
 
