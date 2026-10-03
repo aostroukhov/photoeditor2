@@ -194,8 +194,11 @@ export class ToolBase {
       console.error(`[${this.constructor.name}] apply():`, err);
     }
     if (out && typeof out.then === 'function') {
+      // Долгая операция (Worker): показываем занятость, блокируем тулбар
+      this.pe.setBusy?.(true);
       out.then(cv => cv && this.pe.commitCanvas(cv))
-         .catch(err => console.error(`[${this.constructor.name}] apply():`, err));
+         .catch(err => console.error(`[${this.constructor.name}] apply():`, err))
+         .finally(() => this.pe.setBusy?.(false));
     } else if (out) {
       this.pe.commitCanvas(out)
           .catch(err => console.error(`[${this.constructor.name}] apply():`, err));

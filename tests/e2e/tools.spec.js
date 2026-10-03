@@ -112,6 +112,9 @@ test('Heal: закрашенная область меняется, осталь
   await waitForImageChange(page, before);
   const untouched = await pixelAt(page, 700, 400);
   expect(untouched.slice(0, 3)).toEqual([229, 57, 53]);   // #e53935 нетронут
+  // Алгоритм выполнялся в Web Worker, а не на главном потоке
+  expect(page.workers().length).toBeGreaterThan(0);
+  await expect(page.locator('.photoeditor__container')).not.toHaveClass(/is-busy/);
 });
 
 test('Adjust: экспозиция −100 затемняет весь кадр', async ({ page }) => {

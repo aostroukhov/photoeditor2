@@ -101,3 +101,36 @@ test('undo/redo для каждого применяющего инструме�
   await expect(page.locator('[data-action="redo"]')).toBeDisabled();
   await expect(page.locator('[data-action="undo"]')).toBeEnabled();
 });
+
+test('beforeunload предупреждает только при несохранённых изменениях', async ({ page }) => {
+  await openEditor(page);
+  const fire = () => page.evaluate(() => {
+    const e = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(e);
+    return e.defaultPrevented;
+  });
+  expect(await fire()).toBe(false);
+  const before = await imgSrc(page);
+  await startTool(page, 'draw');
+  await dragOnCanvas(page, [0.2, 0.2], [0.5, 0.5]);
+  await panelBtn(page, 'draw', 'apply').click();
+  await waitForImageChange(page, before);
+  expect(await fire()).toBe(true);
+  const drawn = await imgSrc(page);
+  await page.click('[data-action="undo"]');
+  await waitForImageChange(page, drawn);          // снапшот загружен, флаг изменений снят
+  expect(await fire()).toBe(false);
+});
+
+test('после undo активный инструмент возвращается', async ({ page }) => {
+  await openEditor(page);
+  const before = await imgSrc(page);
+  await startTool(page, 'draw');
+  await dragOnCanvas(page, [0.2, 0.2], [0.5, 0.5]);
+  await panelBtn(page, 'draw', 'apply').click();
+  await waitForImageChange(page, before);
+  await startTool(page, 'mask');
+  await page.click('[data-action="undo"]');
+  await page.waitForFunction(() => window.editor.tools.mask.isActive === true);
+  await expect(page.locator('.pe-panel--mask')).toBeVisible();
+});

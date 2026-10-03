@@ -99,6 +99,29 @@
   }
 }
 
+// ── Занятость (PhotoEditor.setBusy) ──────────────────────────────────────────
+// Длительная операция (apply в Worker): тулбар не принимает клики,
+// поверх изображения — спиннер.
+.photoeditor__container.is-busy {
+  .pe-toolbar { pointer-events: none; opacity: .6; }
+  .photoeditor__img-container::after {
+    animation: pe-spin .8s linear infinite;
+    border: 3px solid hsla(0,0%,100%,.25);
+    border-radius: 50%;
+    border-top-color: var(--pe-accent);
+    content: '';
+    height: 2.5em;
+    left: 50%;
+    margin: -1.25em 0 0 -1.25em;
+    position: absolute;
+    top: 50%;
+    width: 2.5em;
+    z-index: 5;
+  }
+}
+
+@keyframes pe-spin { to { transform: rotate(360deg); } }
+
 // ── Анимации ─────────────────────────────────────────────────────────────────
 @keyframes pe-fade-in {
   from { opacity: 0; }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyAdjustments, rgbToHsl, hslToRgb } from '../../AdjustTool.js';
+import { applyAdjustments, rgbToHsl, hslToRgb } from '../../adjustAlgorithm.js';
 import { EditorConfig } from '../../EditorConfig.js';
 
 const px = (r, g, b) => ({ data: new Uint8ClampedArray([r, g, b, 255]), width: 1, height: 1 });

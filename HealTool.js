@@ -16,6 +16,7 @@ import { EditorConfig }      from './EditorConfig.js';
 import { ToolBase }          from './ToolBase.js';
 import { imageToCanvas }     from './canvasUtils.js';
 import { applyHealingBrush } from './healAlgorithm.js';
+import { runPixelOpSafe }    from './pixelOps.js';
 
 const CFG    = EditorConfig.heal;
 const LS_KEY = CFG.storageKey;
@@ -59,6 +60,7 @@ export class HealTool extends ToolBase {
   _previewCanvas = null; _previewCtx = null;   // предпросмотр результата (в DOM под overlay)
   _previewTimer  = null;
   _hasPreview    = false;
+  _previewImg    = null;    // для какого pe.img посчитано превью
 
   _cursor = { x: -9999, y: -9999, visible: false };
 
@@ -82,7 +84,11 @@ export class HealTool extends ToolBase {
   onResume() {
     this._painting = false; this._lastPoint = null;
     this._ensureAuxCanvases();
-    if (this._hasPreview) this._previewCanvas.style.display = '';
+    if (this._hasPreview) {
+      // Изображение сменилось (undo/другой инструмент) — старое превью неактуально
+      if (this._previewImg !== this.pe.img) { this._clearPreview(); if (this._strokes.length) this._schedulePreview(); }
+      else this._previewCanvas.style.display = '';
+    }
   }
 
   onSuspend() {
@@ -94,22 +100,22 @@ export class HealTool extends ToolBase {
   onCancel()  { this._reset(); }
   onDestroy() { this._reset(); }
 
-  onApply() {
+  async onApply() {
     this._cancelPreviewTimer();
     const img = this.pe.img;
     if (!img || !this._strokes.length) { this._reset(); return null; }
 
-    const canvas = imageToCanvas(img);
-    const ctx    = canvas.getContext('2d');
-    const iw     = canvas.width, ih = canvas.height;
-    const imgData = ctx.getImageData(0, 0, iw, ih);
-
-    const k = this.naturalScale;
-    const native = this._strokes.map(s => ({ cx: s.cx * k, cy: s.cy * k, r: Math.max(2, s.r * k) }));
-    applyHealingBrush(imgData.data, iw, ih, native, { searchMult: this.searchMult, featherFraction: CFG.featherFraction });
-    ctx.putImageData(imgData, 0, 0);
-
+    const k       = this.naturalScale;
+    const strokes = this._strokes.map(s => ({ cx: s.cx * k, cy: s.cy * k, r: Math.max(2, s.r * k) }));
+    const opts    = { searchMult: this.searchMult, featherFraction: CFG.featherFraction };
     this._reset();
+
+    const canvas  = imageToCanvas(img);
+    const ctx     = canvas.getContext('2d');
+    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    // Алгоритм — в Worker: на главном потоке большое фото «замирало» на секунды
+    const out = await runPixelOpSafe('heal', imgData, { strokes, opts });
+    ctx.putImageData(out, 0, 0);
     return canvas;
   }
 
@@ -324,6 +330,7 @@ export class HealTool extends ToolBase {
     this._previewCtx.drawImage(osc, 0, 0);
     this._previewCanvas.style.display = '';
     this._hasPreview = true;
+    this._previewImg = img;
   }
 
 
