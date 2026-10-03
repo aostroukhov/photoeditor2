@@ -25,7 +25,7 @@
  *
  * ── Приватные поля (#) ───────────────────────────────────────────────────────
  *   #stopping, #suspending
- *   #drawing, #currentPts, #shiftLine, #holdTimer, #pointerDownTime
+ *   #drawing, #currentPts, #shiftLine, #holdTimer
  *   #drag, #resize, #opDrag
  *   #panel, #altCursor
  *   Bound-обработчики: #onMouseDownBound и т.д.
@@ -278,8 +278,6 @@ export class DrawTool {
   #shiftLine       = false;
   /** Handle от setTimeout для таймера распознавания фигуры при удержании. */
   #holdTimer       = null;
-  /** Время mousedown/touchstart в мс (для вычисления длительности удержания). */
-  #pointerDownTime = 0;
 
   /** Состояние перетаскивания наброска: { startX, startY, origX, origY }. */
   #drag   = null;
@@ -609,9 +607,11 @@ export class DrawTool {
       : [...this.sketches];
     for (let i = order.length - 1; i >= 0; i--) {
       const sk = order[i];
-      const oh = this.#opHandle(sk);
-      if (Math.hypot(x - oh.x, y - oh.y) <= HR + 5) return { type: 'opacity', sk };
+      // Ручки (прозрачность, углы) рисуются только у выбранного наброска —
+      // проверять их у остальных нельзя: невидимая зона перехватывала новый мазок.
       if (sk === this.selected) {
+        const oh = this.#opHandle(sk);
+        if (Math.hypot(x - oh.x, y - oh.y) <= HR + 5) return { type: 'opacity', sk };
         const c = this.#corners(sk);
         for (let j = 0; j < 4; j++) {
           if (Math.hypot(x - c[j].x, y - c[j].y) <= HR + 5)
@@ -656,7 +656,6 @@ export class DrawTool {
       this.#pickColor(x, y);
       return;
     }
-    this.#pointerDownTime = Date.now();
     this.#shiftLine       = e.shiftKey;
     const { x, y } = this.#clientToCanvas(e.clientX, e.clientY);
     this.#startPointer(x, y);
@@ -688,7 +687,6 @@ export class DrawTool {
   #onTouchStart(e) {
     if (e.touches.length !== 1) return;
     e.preventDefault();
-    this.#pointerDownTime = Date.now();
     const { x, y } = this.#clientToCanvas(e.touches[0].clientX, e.touches[0].clientY);
     this.#startPointer(x, y);
   }
@@ -867,14 +865,13 @@ export class DrawTool {
     }
     if (!this.#drawing) return;
 
-    const elapsed = Date.now() - this.#pointerDownTime;
+    // Распознавание фигуры запускает только таймер удержания (#resetHoldTimer):
+    // он срабатывает, если курсор неподвижен ≥ shapeRecognitionHoldMs при зажатой
+    // кнопке, и сам завершает набросок. Раньше здесь сравнивалась длительность
+    // всего мазка, и любой свободный рисунок дольше 2 с принудительно
+    // превращался в прямоугольник/эллипс/стрелку.
     clearTimeout(this.#holdTimer);
-
-    if (elapsed >= CFG.shapeRecognitionHoldMs) {
-      this.#tryRecognizeAndFinalize();
-    } else {
-      this.#finalizeSketch();
-    }
+    this.#finalizeSketch();
   }
 
   #cancelDraw() {

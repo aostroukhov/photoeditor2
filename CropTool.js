@@ -31,7 +31,7 @@ import { EditorConfig } from './EditorConfig.js';
  *   cropArea, naturalCropArea, cropRotation
  *
  * ── Приватные поля (#) ────────────────────────────────────────────────────────
- *   #panel, #externalAspect, #rotating, #rotateStartAngle
+ *   #panel, #externalAspect, #rotating, #rotatingImage, #rotateStartAngle
  *   #stopping, #suspending, #dragStart, #resizeAnchor
  *   Bound-обработчики: #expandCropAreaBound, #onMouseDownBound, #onMouseUpBound,
  *     #onMouseMoveBound, #onTouchMoveBound, #onContainerResizeBound,
@@ -74,6 +74,9 @@ export class CropTool {
   /** Мировые координаты якорного угла при resize (противоположный курсору угол). */
   #resizeAnchor = null;
 
+  /** true — идёт асинхронный поворот изображения на 90° (ждём декодирования результата). */
+  #rotatingImage = false;
+
   // ── Bound-обработчики событий ─────────────────────────────────────────────
   //
   // Объявляем как приватные поля, а не через .bind() в конструкторе.
@@ -91,6 +94,7 @@ export class CropTool {
   #onTouchStartBound      = (e) => this.#onTouchStart(e);
   #onTouchEndBound        = ()  => this.#onTouchEnd();
   #drawCropAreaBound      = ()  => this.drawCropArea();
+  #onRotateLoadBound      = ()  => this.#onRotateLoad();
 
 
   // ── Публичные поля ──────────────────────────────────────────────────────────
@@ -476,6 +480,8 @@ export class CropTool {
    */
   #rotateImage(deg) {
     const src = this.photoEditor.img;
+    if (!src || this.#rotatingImage) return;   // повторный клик до onload дал бы 90° вместо 180°
+    this.#rotatingImage = true;
     const sw = src.naturalWidth, sh = src.naturalHeight;
     const canvas = document.createElement('canvas');
     canvas.width  = sh; canvas.height = sw;
@@ -487,34 +493,45 @@ export class CropTool {
     const dataUrl = canvas.toDataURL('image/png');
     const newImg  = new Image();
     newImg.onload = () => {
+      this.#rotatingImage = false;
+      if (!this.isActive) return;           // инструмент закрыли, пока декодировали
       this.photoEditor.commitImage(newImg); // обновляет img, imgElement, info, history
       this.naturalCropArea = null;          // область устарела после поворота
-
-      this.photoEditor.imgElement.addEventListener('load', () => {
-        // Пересоздаём canvas под новые размеры
-        if (this.overlayCanvas) {
-          this.overlayCanvas.remove();
-          this.overlayCanvas = null;
-          this.overlayCtx    = null;
-        }
-        const imgEl = this.photoEditor.imgElement;
-        this.overlayCanvas        = document.createElement('canvas');
-        this.overlayCanvas.width  = imgEl.width;
-        this.overlayCanvas.height = imgEl.height;
-        this.overlayCtx           = this.overlayCanvas.getContext('2d');
-        imgEl.parentElement.appendChild(this.overlayCanvas);
-
-        this.#unbindEvents();
-        this.#bindEvents();
-        this.cropArea = {
-          x: imgEl.width / 6, y: imgEl.height / 6,
-          width: imgEl.width / 6 * 4, height: imgEl.height / 6 * 4,
-        };
-        this.adjustCropToAspectRatio();
-        this.#onContainerResize();
-      }, { once: true });
+      // Именованный слушатель — снимается в #unbindEvents, если инструмент
+      // уничтожат до загрузки (иначе создавался «зомби»-canvas с обработчиками).
+      this.photoEditor.imgElement?.addEventListener('load', this.#onRotateLoadBound, { once: true });
+    };
+    newImg.onerror = () => {
+      this.#rotatingImage = false;
+      console.error('[CropTool] rotate: не удалось декодировать повёрнутое изображение');
     };
     newImg.src = dataUrl;
+  }
+
+  /** Пересоздаёт canvas-оверлей под размеры повёрнутого изображения. */
+  #onRotateLoad() {
+    if (!this.isActive) return;
+    if (this.overlayCanvas) {
+      this.overlayCanvas.remove();
+      this.overlayCanvas = null;
+      this.overlayCtx    = null;
+    }
+    const imgEl = this.photoEditor.imgElement;
+    if (!imgEl) return;
+    this.overlayCanvas        = document.createElement('canvas');
+    this.overlayCanvas.width  = imgEl.width;
+    this.overlayCanvas.height = imgEl.height;
+    this.overlayCtx           = this.overlayCanvas.getContext('2d');
+    imgEl.parentElement.appendChild(this.overlayCanvas);
+
+    this.#unbindEvents();
+    this.#bindEvents();
+    this.cropArea = {
+      x: imgEl.width / 6, y: imgEl.height / 6,
+      width: imgEl.width / 6 * 4, height: imgEl.height / 6 * 4,
+    };
+    this.adjustCropToAspectRatio();
+    this.#onContainerResize();
   }
 
 
@@ -544,6 +561,7 @@ export class CropTool {
     document.removeEventListener('touchend',  this.#onTouchEndBound);
     document.removeEventListener('touchmove', this.#onTouchMoveBound);
     this.photoEditor.imgElement?.removeEventListener('load', this.#onContainerResizeBound);
+    this.photoEditor.imgElement?.removeEventListener('load', this.#onRotateLoadBound);
     window.removeEventListener('orientationchange', this.#onContainerResizeBound);
     window.removeEventListener('resize', this.#onContainerResizeBound);
   }

@@ -725,11 +725,14 @@ export class OverlayTool {
   #hitTest(x, y) {
     for (let i = this.overlays.length - 1; i >= 0; i--) {
       const ov = this.overlays[i];
-      const rh = this.#getRotateHandle(ov);
-      if (Math.hypot(x - rh.x, y - rh.y) <= HANDLE_RADIUS + 6)
-        return { type: 'rotate', ov };
 
+      // Ручки рисуются только у выбранного оверлея — у остальных их проверять
+      // нельзя: клик рядом с невидимой ручкой начинал вращение «чужого» оверлея.
       if (ov === this.selected) {
+        const rh = this.#getRotateHandle(ov);
+        if (Math.hypot(x - rh.x, y - rh.y) <= HANDLE_RADIUS + 6)
+          return { type: 'rotate', ov };
+
         const names   = ['topLeft','topRight','bottomRight','bottomLeft'];
         const corners = this.#getCorners(ov);
         for (let j = 0; j < 4; j++) {
