@@ -644,6 +644,12 @@ export class OverlayTool {
     if (Math.abs(kx-1) > 0.001 || Math.abs(ky-1) > 0.001) {
       this.overlays.forEach(ov => {
         ov.x *= kx; ov.y *= ky; ov.width *= kx; ov.height *= ky;
+        // Глифы текста задаются fontSize, а не рамкой — масштабируем и их,
+        // иначе после ресайза окна ручки перестают совпадать с текстом.
+        if (ov instanceof TextOverlay) {
+          ov.fontSize    = Math.max(1, ov.fontSize * ky);
+          ov.strokeWidth = ov.strokeWidth * ky;
+        }
       });
     }
     this.overlayCanvas.width  = newW;
@@ -802,7 +808,7 @@ export class OverlayTool {
     }
 
     if      (type === 'move')   this.#drag   = { startX: x, startY: y, origX: ov.x, origY: ov.y };
-    else if (type === 'resize') this.#resize = { handle, origW: ov.width, origH: ov.height, origX: ov.x, origY: ov.y, aspectRatio: ov.width / ov.height };
+    else if (type === 'resize') this.#resize = { handle, origW: ov.width, origH: ov.height, origX: ov.x, origY: ov.y, aspectRatio: ov.width / ov.height, origFontSize: ov.fontSize };
     else if (type === 'rotate') this.#rotate = { startAngle: Math.atan2(y - ov.cy, x - ov.cx) - ov.rotation };
   }
 
@@ -832,6 +838,10 @@ export class OverlayTool {
       ov.width  = newW; ov.height = newH;
       ov.x = r.origX + (r.origW - newW) / 2;
       ov.y = r.origY + (r.origH - newH) / 2;
+      // Для текста растягивание рамки меняет размер шрифта пропорционально высоте
+      if (ov instanceof TextOverlay && r.origFontSize) {
+        ov.fontSize = Math.max(1, Math.round(r.origFontSize * newH / r.origH));
+      }
     }
 
     this.#draw(); this.#syncPanel();

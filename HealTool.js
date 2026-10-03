@@ -819,9 +819,19 @@ export class HealTool {
 
   _movePaint(x, y) {
     if (!this._painting || !this._lastPoint) return;
-    const dist = Math.hypot(x - this._lastPoint.x, y - this._lastPoint.y);
+    const { x: lx, y: ly } = this._lastPoint;
+    const dist = Math.hypot(x - lx, y - ly);
     const step = Math.max(1, (this.brushSize / 3) | 0);
-    if (dist >= step) { this._addStroke(x, y); this._lastPoint = { x, y }; }
+    if (dist < step) return;
+    // Интерполируем круги вдоль отрезка с шагом step: при быстром движении мыши
+    // между событиями mousemove бывает несколько радиусов, и без интерполяции
+    // мазок рвался на отдельные пятна (каждое — своя компонента в алгоритме).
+    const n = Math.floor(dist / step);
+    for (let i = 1; i <= n; i++) {
+      const t = (i * step) / dist;
+      this._addStroke(lx + (x - lx) * t, ly + (y - ly) * t);
+    }
+    this._lastPoint = { x: lx + (x - lx) * (n * step / dist), y: ly + (y - ly) * (n * step / dist) };
   }
 
   _endPaint() {
