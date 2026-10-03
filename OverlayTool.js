@@ -1,4 +1,5 @@
 import { EditorConfig } from './EditorConfig.js';
+import { escapeHtml, safeCssColor } from './utils.js';
 
 /**
  * OverlayTool v3.6
@@ -173,6 +174,8 @@ export class OverlayTool {
    * true — идёт destroy/cancel; предотвращает повторный вход
    * (например, если onClose панели вызывает cancel()).
    */
+  /** true — идёт асинхронное восстановление набора из истории. */
+  #applyingEntry = false;
   #stopping = false;
 
   /**
@@ -579,8 +582,11 @@ export class OverlayTool {
    * @param {{ overlays: object[] }} entry
    */
   async #applyHistoryEntry(entry) {
+    if (this.#applyingEntry) return;   // карточку кликнули повторно до загрузки картинок
+    this.#applyingEntry = true;
     this.overlays = []; this.selected = null;
-    for (const d of entry.overlays) {
+    try {
+    for (const d of entry.overlays ?? []) {
       if (d.type === 'TextOverlay') {
         // Обратная совместимость: старые записи хранят font='bold 48px sans-serif'
         if (d.font && !d.fontFamily) {
@@ -596,6 +602,9 @@ export class OverlayTool {
           img.src     = d.srcDataUrl;
         });
       }
+    }
+    } finally {
+      this.#applyingEntry = false;
     }
     this.selected = this.overlays.at(-1) ?? null;
     this.#draw(); this.#syncPanel(); this.#renderHistoryPanel();
@@ -965,6 +974,7 @@ export class OverlayTool {
       </div>`;
 
     this.#bindPanelEvents(panel);
+    this.#bindHistoryList(panel);
     this.photoEditor.container.appendChild(panel);
     this.#panel = panel;
 
@@ -1159,36 +1169,49 @@ export class OverlayTool {
     histEl.style.display = ''; listEl.innerHTML = '';
 
     history.forEach((entry, idx) => {
-      const textItems = entry.overlays.filter(o => o.type === 'TextOverlay');
-      const imgItems  = entry.overlays.filter(o => o.type === 'ImageOverlay');
+      const items     = Array.isArray(entry?.overlays) ? entry.overlays : [];
+      const textItems = items.filter(o => o.type === 'TextOverlay');
+      const imgItems  = items.filter(o => o.type === 'ImageOverlay');
       const summary   = [
         textItems.length ? `${textItems.length}×Т` : '',
         imgItems.length  ? `${imgItems.length}×Ф`  : '',
       ].filter(Boolean).join(' ');
 
+      // Данные из localStorage — недоверенные: экранируем текст и валидируем цвет/URL
       const card = document.createElement('div');
-      card.className = 'overlay-history__card';
-      card.title     = 'Кликните чтобы применить';
+      card.className     = 'overlay-history__card';
+      card.title         = 'Кликните чтобы применить';
+      card.dataset.index = String(idx);
       card.innerHTML = `
-        <button type="button" class="overlay-history__btn-delete" data-index="${idx}" title="Удалить">
+        <button type="button" class="overlay-history__btn-delete" data-index="${idx}" title="Удалить" aria-label="Удалить запись истории">
           <i class="icon-close" aria-hidden="true"></i>
         </button>
         <div class="overlay-history__previews">
-          ${textItems.slice(0,2).map(t =>
-            `<div class="overlay-history__thumb overlay-history__thumb--text"
-                  style="color:${t.color}" title="${t.text}">${t.text.slice(0,5)}</div>`
-          ).join('')}
-          ${imgItems.slice(0,2).map(im =>
-            im.srcDataUrl
-              ? `<img class="overlay-history__thumb overlay-history__thumb--img" src="${im.srcDataUrl}" alt="">`
+          ${textItems.slice(0, 2).map(t => {
+            const text = String(t.text ?? '');
+            return `<div class="overlay-history__thumb overlay-history__thumb--text"
+                  style="color:${safeCssColor(t.color)}" title="${escapeHtml(text)}">${escapeHtml(text.slice(0, 5))}</div>`;
+          }).join('')}
+          ${imgItems.slice(0, 2).map(im =>
+            typeof im.srcDataUrl === 'string' && im.srcDataUrl.startsWith('data:image/')
+              ? `<img class="overlay-history__thumb overlay-history__thumb--img" src="${escapeHtml(im.srcDataUrl)}" alt="">`
               : ''
           ).join('')}
         </div>
-        <div class="overlay-history__summary">${summary || 'оверлеи'}</div>`;
+        <div class="overlay-history__summary">${escapeHtml(summary || 'оверлеи')}</div>`;
       listEl.appendChild(card);
     });
+  }
 
-    // Один делегированный обработчик на весь список
+  /**
+   * Один делегированный обработчик на список истории — навешивается один раз
+   * в #createPanel. Раньше он добавлялся при каждой перерисовке списка, и после
+   * N перерисовок один клик выполнялся N раз (удалялось несколько записей,
+   * #applyHistoryEntry стартовал параллельно).
+   */
+  #bindHistoryList(panel) {
+    const listEl = panel.querySelector('.overlay-panel__history-list');
+    if (!listEl) return;
     listEl.addEventListener('click', e => {
       const delBtn = e.target.closest('.overlay-history__btn-delete');
       if (delBtn) {
@@ -1197,10 +1220,9 @@ export class OverlayTool {
         return;
       }
       const card = e.target.closest('.overlay-history__card');
-      if (card) {
-        const idx = Array.from(listEl.children).indexOf(card);
-        if (idx >= 0 && history[idx]) this.#applyHistoryEntry(history[idx]);
-      }
+      if (!card) return;
+      const entry = this.#loadHistory()[Number(card.dataset.index)];
+      if (entry) this.#applyHistoryEntry(entry);
     });
   }
 

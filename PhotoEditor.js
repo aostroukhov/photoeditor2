@@ -630,9 +630,10 @@ export class PhotoEditor {
       ['Размер файла',      this.#formatFileSize(this.originalFileSize)],
     ];
 
+    // Имя файла и MIME приходят извне (файл, буфер, сервер) — экранируем
     const tableRows = rows.map(([k, v]) =>
-      `<tr><td class="pe-info-dialog__key">${k}</td>` +
-      `<td class="pe-info-dialog__val">${v}</td></tr>`
+      `<tr><td class="pe-info-dialog__key">${escapeHtml(k)}</td>` +
+      `<td class="pe-info-dialog__val">${escapeHtml(v)}</td></tr>`
     ).join('');
 
     let dlg = this.container.querySelector('.pe-info-dialog');

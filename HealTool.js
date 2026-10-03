@@ -501,9 +501,7 @@ export class HealTool {
     const pe  = this.photoEditor;
     const img = pe.img;
 
-    if (!img || !this._strokes.length) {
-      this._destroyInternal(); pe._handleToolStop?.('heal'); return;
-    }
+    if (!img || !this._strokes.length) { this._destroyInternal(); return; }
 
     const srcCanvas = imgToCanvas(img);
     const ctx       = srcCanvas.getContext('2d');
@@ -520,15 +518,16 @@ export class HealTool {
     applyHealingBrush(imgData, iw, ih, native, this.searchMult);
     ctx.putImageData(imgData, 0, 0);
 
-    if (pe.export) pe.export(srcCanvas);
+    // Результат фиксируется только через commitImage (история, dirty-флаг).
+    // Экспорт в источник — отдельное действие пользователя (ExportPanel / requestClose).
     const url    = srcCanvas.toDataURL('image/png');
     const newImg = new Image();
-    newImg.onload = () => { pe.commitImage(newImg); };
+    newImg.onload  = () => { pe.commitImage(newImg); };
+    newImg.onerror = () => console.error('[HealTool] apply(): не удалось декодировать результат');
     newImg.src = url;
 
     this._strokes = []; this._hasPreview = false;
     this._destroyInternal();
-    pe._handleToolStop?.('heal');
   }
 
   openSettings() { this.photoEditor.dialogs?.toggle('heal'); }

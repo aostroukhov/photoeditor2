@@ -111,29 +111,31 @@ export function applyAdjustments(imageData, params) {
     }
 
     if (!noColor) {
-      let [h, s, l] = rgbToHsl(r, g, b);
+      const [h0, s, l] = rgbToHsl(r, g, b);
+      let h  = h0;
       let ns = s;
 
-      if (satAdj !== 0)
-        ns = satAdj > 0 ? ns + satAdj * (1 - ns) : ns + satAdj * ns;
+      // Нейтральный (серый) пиксель: s = 0, тон неопределён (rgbToHsl даёт h = 0 —
+      // «красный»). Усиливать насыщенность такому пикселю нельзя — он покраснеет.
+      if (s > 0) {
+        if (satAdj !== 0)
+          ns = satAdj > 0 ? ns + satAdj * (1 - ns) : ns + satAdj * ns;
 
-      if (vibAdj !== 0) {
-        const vibMask = vibAdj > 0 ? (1 - ns) : ns;
-        ns = ns + vibAdj * vibMask * 0.7;
+        if (vibAdj !== 0) {
+          const vibMask = vibAdj > 0 ? (1 - ns) : ns;
+          ns = ns + vibAdj * vibMask * 0.7;
+        }
+
+        ns = Math.max(0, Math.min(1, ns));
       }
 
-      ns = Math.max(0, Math.min(1, ns));
-
-      // Сдвиг тона
+      // Сдвиг тона (для серого — тождество, hslToRgb при s = 0 вернёт серый)
       if (hueAdj !== 0) {
         h = (h + hueAdj + 360) % 360;
       }
 
       if (Math.abs(ns - s) > 0.001 || hueAdj !== 0)
         [r, g, b] = hslToRgb(h, ns, l);
-      else if (Math.abs(ns - s) <= 0.001 && hueAdj === 0) {
-        // только сатурация не изменилась, пересчёт не нужен — уже r,g,b
-      }
     }
 
     data[i]     = r;
@@ -248,8 +250,7 @@ export class AdjustTool {
     const pe = this.photoEditor;
 
     const isDefault = Object.keys(this.params).every(k => this.params[k] === CFG.defaults[k]);
-    if (isDefault) { this._destroyInternal(); pe._handleToolStop?.('adjust'); return; }
-    if (!this._fullOrigData) { this._destroyInternal(); pe._handleToolStop?.('adjust'); return; }
+    if (isDefault || !this._fullOrigData) { this._destroyInternal(); return; }
 
     // Восстанавливаем imgElement до записи результата
     this._restoreImgElement();
@@ -269,18 +270,14 @@ export class AdjustTool {
     out.height = this._fullOrigHeight;
     out.getContext('2d').putImageData(cloned, 0, 0);
 
-    if (pe.export) pe.export(out);
-
     const url    = out.toDataURL('image/png');
     const newImg = new Image();
-    newImg.onload = () => {
-      pe.commitImage(newImg);
-    };
+    newImg.onload  = () => { pe.commitImage(newImg); };
+    newImg.onerror = () => console.error('[AdjustTool] apply(): не удалось декодировать результат');
     newImg.src = url;
 
     this.params = { ...CFG.defaults };
     this._destroyInternal();
-    pe._handleToolStop?.('adjust');
   }
 
   openSettings() { this.photoEditor.dialogs?.toggle('adjust'); }

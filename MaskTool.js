@@ -225,8 +225,7 @@ export class MaskTool {
   apply() {
     const pe  = this.photoEditor;
     const img = pe.img;
-    if (!img) { this._destroyInternal(); pe._handleToolStop?.('mask'); return; }
-    if (!this.regions.length) { this._destroyInternal(); pe._handleToolStop?.('mask'); return; }
+    if (!img || !this.regions.length) { this._destroyInternal(); return; }
 
     // Исходный canvas для чтения пикселей
     const srcCanvas = imgToCanvas(img);
@@ -250,20 +249,16 @@ export class MaskTool {
       pixelateRect(ctx, srcCanvas, rx, ry, rw, rh, blockPx, rx, ry, rw, rh);
     }
 
-    if (pe.export) pe.export(out);
-
+    // Результат фиксируется только через commitImage (он же обновляет imgElement).
     const url    = out.toDataURL('image/png');
     const newImg = new Image();
-    newImg.onload = () => {
-      pe.commitImage(newImg);
-      if (pe.imgElement) pe.imgElement.src = url;
-    };
+    newImg.onload  = () => { pe.commitImage(newImg); };
+    newImg.onerror = () => console.error('[MaskTool] apply(): не удалось декодировать результат');
     newImg.src = url;
 
     this.regions  = [];
     this.selected = null;
     this._destroyInternal();
-    pe._handleToolStop?.('mask');
   }
 
   openSettings() { this.photoEditor.dialogs?.toggle('mask'); }
