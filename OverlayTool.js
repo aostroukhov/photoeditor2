@@ -326,7 +326,7 @@ export class OverlayTool {
   destroy() {
     this.overlays = [];
     this.selected = null;
-    this.#destroyInternal(true);
+    this.#destroyInternal();
     this.overlayCanvas?.remove();
     this.overlayCanvas = null;
     this.overlayCtx    = null;
@@ -484,7 +484,7 @@ export class OverlayTool {
   /**
    * @param {boolean} [silent=false]  Не трогать диалог — при destroy() DOM уже разрушается.
    */
-  #destroyInternal(silent = false) {
+  #destroyInternal() {
     if (this.#stopping) return;
     this.#stopping = true;
 
@@ -540,19 +540,6 @@ export class OverlayTool {
     ov.y = Math.round((this.overlayCanvas.height - ov.height) / 2);
   }
 
-  #centerH() {
-    const ov = this.selected;
-    if (!ov || !this.overlayCanvas) return;
-    ov.x = Math.round((this.overlayCanvas.width - ov.width) / 2);
-    this.#draw(); this.#syncPanel();
-  }
-
-  #centerV() {
-    const ov = this.selected;
-    if (!ov || !this.overlayCanvas) return;
-    ov.y = Math.round((this.overlayCanvas.height - ov.height) / 2);
-    this.#draw(); this.#syncPanel();
-  }
 
 
   // ── Приватные методы: история ────────────────────────────────────────────────

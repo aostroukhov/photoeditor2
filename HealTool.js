@@ -243,13 +243,13 @@ function findBestOffset(data, iw, ih, mask, boundary, searchMult) {
       const d = Math.hypot(dx, dy);
       if (d < minOff || d > searchR) continue;
 
-      let err = 0, cnt = 0, oob = 0;
+      let err = 0, cnt = 0;
 
       for (const i of sampled) {
         const bx = i % iw, by = (i / iw) | 0;
         const sx = bx + dx, sy = by + dy;
-        if (sx < 0 || sy < 0 || sx >= iw || sy >= ih) { oob++; continue; }
-        if (mask[sy * iw + sx]) { oob++; continue; } // источник в маске — плохой кандидат
+        if (sx < 0 || sy < 0 || sx >= iw || sy >= ih) continue;
+        if (mask[sy * iw + sx]) continue; // источник в маске — плохой кандидат
         const si = (sy * iw + sx) * 4;
         const dr = data[i * 4]     - data[si];
         const dg = data[i * 4 + 1] - data[si + 1];
@@ -535,7 +535,7 @@ export class HealTool {
   destroy() {
     this._cancelPreviewRaf();
     this._strokes = []; this._hasPreview = false; this._painting = false;
-    this._destroyInternal(true);
+    this._destroyInternal();
     this._previewCanvas?.remove(); this._previewCanvas = null; this._previewCtx  = null;
     this.overlayCanvas?.remove();  this.overlayCanvas  = null; this.overlayCtx   = null;
     this._maskCanvas = null; this._maskCtx = null;

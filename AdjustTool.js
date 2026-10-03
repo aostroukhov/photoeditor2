@@ -17,7 +17,7 @@ const CFG = EditorConfig.adjust;
 
 // ─── Математика коррекций ─────────────────────────────────────────────────────
 
-function rgbToHsl(r, g, b) {
+export function rgbToHsl(r, g, b) {
   r /= 255; g /= 255; b /= 255;
   const max = Math.max(r, g, b), min = Math.min(r, g, b);
   const l   = (max + min) / 2;
@@ -39,7 +39,7 @@ function hue2rgb(p, q, t) {
   return p;
 }
 
-function hslToRgb(h, s, l) {
+export function hslToRgb(h, s, l) {
   h /= 360;
   if (s === 0) { const v = Math.round(l * 255); return [v, v, v]; }
   const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
@@ -54,7 +54,7 @@ function hslToRgb(h, s, l) {
 /**
  * LUT для яркостных коррекций — строится один раз, применяется ко всем пикселям.
  */
-function buildLUT(exposure, contrast, shadows, highlights) {
+export function buildLUT(exposure, contrast, shadows, highlights) {
   const lut       = new Uint8ClampedArray(256);
   const expFactor = Math.pow(2, exposure / 100);
   const conK      = 1 + contrast / 100;
@@ -78,7 +78,7 @@ function buildLUT(exposure, contrast, shadows, highlights) {
 /**
  * Применяет все коррекции к ImageData in-place. Один проход по пикселям.
  */
-function applyAdjustments(imageData, params) {
+export function applyAdjustments(imageData, params) {
   const { exposure, contrast, shadows, highlights, saturation, vibrance, hue, temperature } = params;
   const data    = imageData.data;
   const len     = data.length;
@@ -285,7 +285,7 @@ export class AdjustTool {
 
   openSettings() { this.photoEditor.dialogs?.toggle('adjust'); }
 
-  destroy() { this._destroyInternal(true); }
+  destroy() { this._destroyInternal(); }
 
   _resume() {
     if (!this.isSuspended) return;
@@ -301,7 +301,7 @@ export class AdjustTool {
     this.photoEditor.syncToolButtons?.();
   }
 
-  _destroyInternal(silent = false) {
+  _destroyInternal() {
     if (this._stopping) return;
     this._stopping = true;
     if (this._raf) { cancelAnimationFrame(this._raf); this._raf = null; }

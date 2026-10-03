@@ -259,7 +259,7 @@ export class CropTool {
    * Silent-режим: не пытается закрыть панель (DOM уже разрушается).
    */
   destroy() {
-    this.#destroy(/* silent */ true);
+    this.#destroy();
   }
 
   /**
@@ -349,7 +349,7 @@ export class CropTool {
    * @param {boolean} [silent=false]  true — не вызывать dialogs.unregister
    *   (используется в destroy() когда PhotoEditor уже закрывается).
    */
-  #destroy(silent = false) {
+  #destroy() {
     if (this.#stopping) return;
     this.#stopping = true;
 

@@ -536,7 +536,7 @@ export class PhotoEditor {
       return;
     }
 
-    if (Boolean(this.export)) {
+    if (this.export) {
       // Режим src/target: есть куда сохранять — предлагаем сохранить
       this.#showCloseConfirmDialog('save-or-discard').then(result => {
         if (result === 'save') {

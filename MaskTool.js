@@ -124,7 +124,6 @@ function regionThumb(srcCanvas, region, scale, size = 56) {
   ctx.drawImage(srcCanvas, rx, ry, rw, rh, ox, oy, dw, dh);
 
   // Поверх — пикселизация для превью
-  const bs = Math.max(2, Math.round(region.blockSize * scale * fit));
   pixelateRect(ctx, srcCanvas, rx, ry, rw, rh, Math.max(1, Math.round(region.blockSize * scale)), ox, oy, dw, dh);
 
   return cv.toDataURL('image/png');
@@ -273,7 +272,7 @@ export class MaskTool {
     this.selected    = null;
     this._srcCanvas  = null;
     this._srcImg     = null;
-    this._destroyInternal(true);
+    this._destroyInternal();
     this.overlayCanvas?.remove();
     this.overlayCanvas = null;
     this.overlayCtx    = null;
@@ -297,7 +296,7 @@ export class MaskTool {
     this.photoEditor.syncToolButtons?.();
   }
 
-  _destroyInternal(silent = false) {
+  _destroyInternal() {
     if (this._stopping) return;
     this._stopping = true;
     this._unbindEvents();

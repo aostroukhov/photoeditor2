@@ -83,12 +83,6 @@ function dbGetAll(store, query) {
   });
 }
 
-function dbGetAllKeys(store, query) {
-  return new Promise((res, rej) => {
-    const r = query ? store.index('session').getAllKeys(query) : store.getAllKeys();
-    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
-  });
-}
 
 /**
  * Удаляет все записи с данным sessionId в одной транзакции через курсор.

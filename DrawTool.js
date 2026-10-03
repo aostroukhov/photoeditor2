@@ -412,7 +412,7 @@ export class DrawTool {
   destroy() {
     this.sketches = [];
     this.selected = null;
-    this.#destroyInternal(true);
+    this.#destroyInternal();
     this.overlayCanvas?.remove();
     this.overlayCanvas = null;
     this.overlayCtx    = null;
@@ -438,7 +438,7 @@ export class DrawTool {
     this.photoEditor.syncToolButtons?.();
   }
 
-  #destroyInternal(silent = false) {
+  #destroyInternal() {
     if (this.#stopping) return;
     this.#stopping = true;
     this.#cancelDraw();
@@ -865,7 +865,7 @@ export class DrawTool {
     if (elapsed >= CFG.shapeRecognitionHoldMs) {
       this.#tryRecognizeAndFinalize();
     } else {
-      this.#finalizeSketch(false);
+      this.#finalizeSketch();
     }
   }
 
@@ -880,14 +880,14 @@ export class DrawTool {
     if (!pts.length) return;
     if (_isStraightLine(pts)) {
       const arrow = _makeArrow(pts);
-      if (arrow) { this.#currentPts = arrow.points; this.#finalizeSketch(true); return; }
+      if (arrow) { this.#currentPts = arrow.points; this.#finalizeSketch(); return; }
     }
     const recognized = recognizeShape(pts);
     if (recognized) this.#currentPts = recognized.points;
-    this.#finalizeSketch(recognized != null);
+    this.#finalizeSketch();
   }
 
-  #finalizeSketch(recognized) {
+  #finalizeSketch() {
     if (this.#currentPts.length < 2) {
       this.#drawing = false; this.#currentPts = []; return;
     }
