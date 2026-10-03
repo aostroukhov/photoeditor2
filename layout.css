@@ -359,6 +359,12 @@
   gap: 0.25em;
   margin-left: auto;
 }
+.pe-panel__header-left {
+  align-items: center;
+  display: flex;
+  gap: 0.5em;
+  min-width: 0;
+}
 .pe-panel__close {
   -webkit-appearance: none;
   -moz-appearance: none;

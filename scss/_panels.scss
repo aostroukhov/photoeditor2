@@ -53,6 +53,14 @@
     margin-left: auto;
   }
 
+  // Заголовок + дополнительные элементы слева (ToolBase.panelHeader({ left }))
+  &__header-left {
+    align-items: center;
+    display: flex;
+    gap: 0.5em;
+    min-width: 0;
+  }
+
   // Единообразная кнопка закрытия панели
   &__close {
     @include btn-reset;
