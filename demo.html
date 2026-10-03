@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PhotoEditor — демо</title>
+<style>
+/* ── Reset ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root { --scrollbar-width: calc(100vw - 100%); }
+
+body {
+	font-family: system-ui, -apple-system, 'Segoe UI', Arial, sans-serif;
+	font-size: 15px;
+	background: #1a1a2e;
+	color: #e0e0e0;
+	min-height: 100vh;
+	display: flex;
+	flex-direction: column;
+}
+
+/* ── Шапка ── */
+.demo-header {
+	background: rgba(0,0,0,.35);
+	border-bottom: 1px solid rgba(255,255,255,.1);
+	padding: 18px 32px;
+	display: flex;
+	align-items: center;
+	gap: 14px;
+}
+.demo-header__logo {
+	font-size: 22px;
+	font-weight: 700;
+	letter-spacing: -.02em;
+	color: #fff;
+}
+.demo-header__logo span { color: #3c8fe0; }
+.demo-header__version {
+	font-size: 11px;
+	background: rgba(60,143,224,.2);
+	color: #7ec8ff;
+	padding: 2px 8px;
+	border-radius: 20px;
+	border: 1px solid rgba(60,143,224,.35);
+}
+
+/* ── Основной контент ── */
+.demo-main {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	padding: 48px 24px;
+	gap: 40px;
+}
+
+/* ── Hero ── */
+.demo-hero {
+	text-align: center;
+	max-width: 560px;
+}
+.demo-hero h1 {
+	font-size: 32px;
+	font-weight: 700;
+	line-height: 1.2;
+	color: #fff;
+	margin-bottom: 12px;
+}
+.demo-hero h1 em {
+	font-style: normal;
+	color: #3c8fe0;
+}
+.demo-hero p {
+	color: rgba(255,255,255,.55);
+	line-height: 1.6;
+	font-size: 15px;
+}
+
+/* ── Карточка загрузки ── */
+.demo-upload-card {
+	background: rgba(255,255,255,.05);
+	border: 1px solid rgba(255,255,255,.1);
+	border-radius: 16px;
+	padding: 40px 48px;
+	width: 100%;
+	max-width: 520px;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 20px;
+}
+
+.demo-dropzone {
+	width: 100%;
+	border: 2px dashed rgba(60,143,224,.45);
+	border-radius: 12px;
+	padding: 36px 24px;
+	text-align: center;
+	cursor: pointer;
+	transition: border-color .18s, background .18s;
+	position: relative;
+}
+.demo-dropzone:hover,
+.demo-dropzone.is-over {
+	border-color: #3c8fe0;
+	background: rgba(60,143,224,.08);
+}
+.demo-dropzone__icon {
+	font-size: 40px;
+	margin-bottom: 10px;
+	display: block;
+}
+.demo-dropzone__label {
+	font-size: 14px;
+	color: rgba(255,255,255,.6);
+}
+.demo-dropzone__label strong {
+	color: #7ec8ff;
+}
+.demo-dropzone__input {
+	position: absolute;
+	inset: 0;
+	opacity: 0;
+	cursor: pointer;
+	width: 100%;
+	height: 100%;
+}
+
+/* Предпросмотр */
+.demo-preview-wrap {
+	display: none;
+	flex-direction: column;
+	align-items: center;
+	gap: 14px;
+	width: 100%;
+}
+.demo-preview-wrap.is-visible { display: flex; }
+
+.demo-preview {
+	max-width: 100%;
+	max-height: 200px;
+	border-radius: 8px;
+	border: 1px solid rgba(255,255,255,.12);
+	object-fit: contain;
+	background: #111;
+}
+
+.demo-preview-meta {
+	font-size: 12px;
+	color: rgba(255,255,255,.4);
+	text-align: center;
+}
+
+/* ── Кнопки действий ── */
+.demo-actions {
+	display: flex;
+	gap: 10px;
+	flex-wrap: wrap;
+	justify-content: center;
+	width: 100%;
+}
+
+.demo-btn {
+	appearance: none;
+	border: none;
+	border-radius: 8px;
+	padding: 10px 22px;
+	font-size: 14px;
+	font-weight: 600;
+	cursor: pointer;
+	transition: background .18s, transform .1s;
+	display: inline-flex;
+	align-items: center;
+	gap: 7px;
+}
+.demo-btn:active { transform: scale(.97); }
+
+.demo-btn--primary {
+	background: #3c8fe0;
+	color: #fff;
+}
+.demo-btn--primary:hover { background: #2f78c8; }
+.demo-btn--primary:disabled { background: #2a4a6a; color: rgba(255,255,255,.35); cursor: default; }
+
+.demo-btn--secondary {
+	background: rgba(255,255,255,.1);
+	color: #e0e0e0;
+	border: 1px solid rgba(255,255,255,.15);
+}
+.demo-btn--secondary:hover { background: rgba(255,255,255,.17); }
+
+.demo-btn--success {
+	background: #1e6e3c;
+	color: #fff;
+}
+.demo-btn--success:hover { background: #288050; }
+.demo-btn--success:disabled { background: #1a3a26; color: rgba(255,255,255,.3); cursor: default; }
+
+/* ── Результат ── */
+.demo-result-section {
+	display: none;
+	flex-direction: column;
+	align-items: center;
+	gap: 16px;
+	width: 100%;
+	max-width: 520px;
+}
+.demo-result-section.is-visible { display: flex; }
+
+.demo-result-title {
+	font-size: 13px;
+	font-weight: 600;
+	color: rgba(255,255,255,.5);
+	text-transform: uppercase;
+	letter-spacing: .08em;
+}
+
+.demo-result-img {
+	max-width: 100%;
+	max-height: 300px;
+	border-radius: 10px;
+	border: 1px solid rgba(255,255,255,.12);
+	object-fit: contain;
+	background: #111;
+	box-shadow: 0 8px 40px rgba(0,0,0,.5);
+}
+
+/* ── Фичи ── */
+.demo-features {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+	gap: 14px;
+	width: 100%;
+	max-width: 760px;
+}
+.demo-feature {
+	background: rgba(255,255,255,.04);
+	border: 1px solid rgba(255,255,255,.08);
+	border-radius: 10px;
+	padding: 18px 20px;
+}
+.demo-feature__icon { font-size: 24px; margin-bottom: 8px; display: block; }
+.demo-feature__title {
+	font-size: 13px;
+	font-weight: 600;
+	color: #fff;
+	margin-bottom: 4px;
+}
+.demo-feature__desc {
+	font-size: 12px;
+	color: rgba(255,255,255,.45);
+	line-height: 1.5;
+}
+
+/* ── Тост ── */
+.demo-toast {
+	position: fixed;
+	bottom: 24px;
+	left: 50%;
+	transform: translateX(-50%) translateY(80px);
+	background: #1e6e3c;
+	color: #fff;
+	padding: 10px 22px;
+	border-radius: 30px;
+	font-size: 14px;
+	font-weight: 500;
+	box-shadow: 0 4px 20px rgba(0,0,0,.5);
+	transition: transform .3s cubic-bezier(.34,1.56,.64,1);
+	z-index: 9999;
+	pointer-events: none;
+}
+.demo-toast.is-visible {
+	transform: translateX(-50%) translateY(0);
+}
+
+/* ── Подвал ── */
+.demo-footer {
+	text-align: center;
+	padding: 20px;
+	font-size: 12px;
+	color: rgba(255,255,255,.2);
+	border-top: 1px solid rgba(255,255,255,.06);
+}
+
+</style>
+</head>
+<body>
+
+<!-- Шапка -->
+<header class="demo-header">
+	<div class="demo-header__logo">Photo<span>Editor</span></div>
+	<div class="demo-header__version">v3.5</div>
+</header>
+
+<!-- Основной контент -->
+<main class="demo-main">
+
+	<section class="demo-hero">
+		<h1>Редактор изображений<br><em>прямо в браузере</em></h1>
+		<p>Кадрирование, текстовые и графические оверлеи с прозрачностью, поворотом и масштабированием. Без серверов, без зависимостей.</p>
+	</section>
+
+	<!-- Карточка загрузки -->
+	<section class="demo-upload-card">
+
+		<div class="demo-dropzone" id="dropzone">
+			<span class="demo-dropzone__icon">🖼</span>
+			<div class="demo-dropzone__label">
+				<strong>Выберите или перетащите</strong> изображение<br>
+				<span style="font-size:12px;opacity:.7">JPG, PNG, WebP, GIF · любой размер</span>
+			</div>
+			<input
+				type="file"
+				id="fileInput"
+				accept="image/*"
+				class="demo-dropzone__input"
+			>
+		</div>
+
+		<!-- Предпросмотр после выбора файла -->
+		<div class="demo-preview-wrap" id="previewWrap">
+			<img class="demo-preview" id="previewImg" src="" alt="preview">
+			<div class="demo-preview-meta" id="previewMeta"></div>
+		</div>
+
+		<!-- Кнопки -->
+		<div class="demo-actions">
+			<button class="demo-btn demo-btn--primary" id="btnCrop" disabled>
+				✂ Кадрировать
+			</button>
+			<button class="demo-btn demo-btn--primary" id="btnOverlay" disabled>
+				⊕ Оверлеи
+			</button>
+			<button class="demo-btn demo-btn--primary" id="btnDraw" disabled>
+				✏ Рисунок
+			</button>
+			<button class="demo-btn demo-btn--secondary" id="btnPaste">
+				📋 Из буфера
+			</button>
+			<button class="demo-btn demo-btn--success" id="btnDownload" disabled>
+				⬇ Скачать
+			</button>
+		</div>
+
+	</section>
+
+	<!-- Результат -->
+	<section class="demo-result-section" id="resultSection">
+		<div class="demo-result-title">Результат</div>
+		<img class="demo-result-img" id="resultImg" src="" alt="result">
+		<div class="demo-preview-meta" id="resultMeta"></div>
+	</section>
+
+	<!-- Описание возможностей -->
+	<section class="demo-features">
+		<div class="demo-feature">
+			<span class="demo-feature__icon">✏</span>
+			<div class="demo-feature__title">Рисование</div>
+			<div class="demo-feature__desc">Линии, стрелки, круги, прямоугольники. Shift — прямые. Удержание 2 с — распознавание формы и выравнивание.</div>
+		</div>
+		<div class="demo-feature">
+			<span class="demo-feature__icon">✂</span>
+			<div class="demo-feature__title">Кадрирование</div>
+			<div class="demo-feature__desc">Интерактивная область, ручки по углам и сторонам, фиксация пропорций, золотое сечение. Двойной клик — на весь кадр.</div>
+		</div>
+		<div class="demo-feature">
+			<span class="demo-feature__icon">🔤</span>
+			<div class="demo-feature__title">Текстовый оверлей</div>
+			<div class="demo-feature__desc">Произвольный текст с обводкой. Перемещение, масштаб, поворот, прозрачность, цвет.</div>
+		</div>
+		<div class="demo-feature">
+			<span class="demo-feature__icon">🖼</span>
+			<div class="demo-feature__title">Графический оверлей</div>
+			<div class="demo-feature__desc">Любой PNG/SVG с прозрачным фоном. Поддерживается alpha-канал и управление opacity.</div>
+		</div>
+		<div class="demo-feature">
+			<span class="demo-feature__icon">⌨</span>
+			<div class="demo-feature__title">Клавиатура и тач</div>
+			<div class="demo-feature__desc">Стрелки двигают активный объект. Shift × 10. Delete удаляет. Enter / Escape завершают действие.</div>
+		</div>
+	</section>
+
+</main>
+
+<footer class="demo-footer">PhotoEditor v3.5 · vanilla JS ES Modules · canvas API</footer>
+
+<!-- Тост -->
+<div class="demo-toast" id="toast"></div>
+
+<script type="module">
+// ── Динамический импорт модулей ──────────────────────────────────────────────
+// В production модули должны лежать рядом с demo.html
+
+let PhotoEditor, CropTool, OverlayTool;
+
+try {
+	const pe = await import('./PhotoEditor.js');
+	PhotoEditor = pe.PhotoEditor;
+	OverlayTool = (await import('./OverlayTool.js')).OverlayTool;
+} catch (e) {
+	// Если модули не найдены (открыто как отдельный файл) — собираем заглушки
+	// для наглядности демо. В реальном проекте эта ветка не нужна.
+	console.warn('Модули PhotoEditor не найдены, используется режим демо-заглушки:', e.message);
+	PhotoEditor = class {
+		constructor() {
+			this.img = null;
+			this.tools = {};
+			this.toolOnOpen = null;
+			this.afterClose = null;
+		}
+		bindToFileInput() {}
+		open() {
+			showToast('⚠ Для полного функционала откройте demo.html через HTTP-сервер рядом с JS-модулями');
+		}
+		close() {}
+	};
+}
+
+
+// ── Инициализация редактора ───────────────────────────────────────────────────
+
+const editor = new PhotoEditor();
+
+// Кастомный экспорт: показываем результат прямо на странице вместо замены input
+editor.export = (canvas) => {
+	canvas.toBlob((blob) => {
+		const url = URL.createObjectURL(blob);
+		resultImg.src = url;
+		resultImg.onload = () => {
+			resultMeta.textContent = `${canvas.width} × ${canvas.height} px`;
+			URL.revokeObjectURL(url);
+		};
+		resultSection.classList.add('is-visible');
+		btnDownload.disabled = false;
+		showToast('✓ Изображение обработано');
+	}, 'image/png');
+};
+
+editor.afterClose = () => {
+	updateButtons();
+};
+
+
+// ── DOM-ссылки ────────────────────────────────────────────────────────────────
+
+const fileInput     = document.getElementById('fileInput');
+const dropzone      = document.getElementById('dropzone');
+const previewWrap   = document.getElementById('previewWrap');
+const previewImg    = document.getElementById('previewImg');
+const previewMeta   = document.getElementById('previewMeta');
+const btnCrop       = document.getElementById('btnCrop');
+const btnOverlay    = document.getElementById('btnOverlay');
+const btnDraw       = document.getElementById('btnDraw');
+const btnPaste      = document.getElementById('btnPaste');
+const btnDownload   = document.getElementById('btnDownload');
+const resultSection = document.getElementById('resultSection');
+const resultImg     = document.getElementById('resultImg');
+const resultMeta    = document.getElementById('resultMeta');
+const toast         = document.getElementById('toast');
+
+
+// ── Утилиты ───────────────────────────────────────────────────────────────────
+
+let toastTimer;
+function showToast(msg) {
+	toast.textContent = msg;
+	toast.classList.add('is-visible');
+	clearTimeout(toastTimer);
+	toastTimer = setTimeout(() => toast.classList.remove('is-visible'), 2800);
+}
+
+function loadImageIntoEditor(file) {
+	if (!file || !file.type.startsWith('image/')) return;
+
+	const reader = new FileReader();
+	reader.onload = (e) => {
+		const img = new Image();
+		img.onload = () => {
+			editor.img = img;
+			editor.originalFileName = file.name || null;
+			editor.originalMimeType = file.type || null;
+			previewImg.src = e.target.result;
+			previewMeta.textContent = `${img.naturalWidth} × ${img.naturalHeight} · ${file.name}`;
+			previewWrap.classList.add('is-visible');
+			updateButtons();
+		};
+		img.src = e.target.result;
+	};
+	reader.readAsDataURL(file);
+}
+
+function updateButtons() {
+	const hasImg = Boolean(editor.img);
+	btnCrop.disabled    = !hasImg;
+	btnOverlay.disabled = !hasImg;
+	btnDraw.disabled    = !hasImg;
+}
+
+
+// ── Загрузка файла ────────────────────────────────────────────────────────────
+
+fileInput.addEventListener('change', () => {
+	loadImageIntoEditor(fileInput.files[0]);
+});
+
+// Drag & Drop
+dropzone.addEventListener('dragover', (e) => {
+	e.preventDefault();
+	dropzone.classList.add('is-over');
+});
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('is-over'));
+dropzone.addEventListener('drop', (e) => {
+	e.preventDefault();
+	dropzone.classList.remove('is-over');
+	const file = e.dataTransfer.files[0];
+	if (file) loadImageIntoEditor(file);
+});
+
+
+// ── Кнопки ───────────────────────────────────────────────────────────────────
+
+btnCrop.addEventListener('click', () => {
+	editor.toolOnOpen = 'crop';
+	editor.open();
+});
+
+btnOverlay.addEventListener('click', () => {
+	editor.toolOnOpen = 'overlay';
+	editor.open();
+});
+
+btnDraw.addEventListener('click', () => {
+	editor.toolOnOpen = 'draw';
+	editor.open();
+});
+
+btnPaste.addEventListener('click', async () => {
+	if (!navigator.clipboard?.read) {
+		showToast('⚠ Буфер обмена недоступен — нужен HTTPS или localhost');
+		return;
+	}
+	try {
+		const items = await navigator.clipboard.read();
+		for (const item of items) {
+			for (const type of item.types) {
+				if (!type.startsWith('image/')) continue;
+				const blob = await item.getType(type);
+				const file = new File([blob], 'clipboard.png', { type: blob.type });
+				loadImageIntoEditor(file);
+				showToast('✓ Изображение из буфера вставлено');
+				return;
+			}
+		}
+		showToast('В буфере нет изображения');
+	} catch {
+		showToast('⚠ Нет доступа к буферу — разрешите в браузере');
+	}
+});
+
+btnDownload.addEventListener('click', () => {
+	if (!resultImg.src) return;
+	const a = document.createElement('a');
+	a.href     = resultImg.src;
+	a.download = 'edited.png';
+	a.click();
+});
+
+
+// ── Горячие клавиши ───────────────────────────────────────────────────────────
+// (когда редактор закрыт)
+
+document.addEventListener('keydown', (e) => {
+	if (editor.container) return; // редактор открыт — он обрабатывает сам
+	if (!editor.img) return;
+
+	if (e.key === 'c' && !e.ctrlKey && !e.metaKey) {
+		editor.toolOnOpen = 'crop';
+		editor.open();
+	}
+	if (e.key === 'o') {
+		editor.toolOnOpen = 'overlay';
+		editor.open();
+	}
+	if (e.key === 'd') {
+		editor.toolOnOpen = 'draw';
+		editor.open();
+	}
+});
+</script>
+</body>
+</html>

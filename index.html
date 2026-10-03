@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PhotoEditor</title>
+  <link rel="stylesheet" href="layout.css">
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #000; }
+  </style>
+</head>
+<body>
+  <script type="module">
+  import { PhotoEditor } from './PhotoEditor.js';
+
+  function makeBlankCanvas(w = 1600, h = 900) {
+    const canvas = document.createElement('canvas');
+    canvas.width  = w; canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, w, h);
+    return canvas;
+  }
+
+  const editor = new PhotoEditor({
+    showImport: true,
+    showExport: true,
+  });
+
+  editor.afterClose = () => location.reload();
+
+  // Используем dataURL, а не blob URL — чтобы изображение не потерялось
+  // после того как редактор откроет imgElement и установит src повторно
+  const canvas = makeBlankCanvas();
+  const dataUrl = canvas.toDataURL('image/png');
+  editor.setImage(dataUrl).then(() => editor.open());
+  </script>
+</body>
+</html>
