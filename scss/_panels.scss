@@ -1,0 +1,1292 @@
+// ─── Панели (диалоги инструментов) ────────────────────────────────────────────
+// Все диалоги используют единый базовый стиль .pe-panel
+// BEM: .pe-panel / .pe-panel__* — общая база
+// Конкретные панели: .pe-panel--export, .pe-panel--import, .pe-panel--crop,
+//                    .pe-panel--overlay
+
+// ── Анимация ─────────────────────────────────────────────────────────────────
+@keyframes pe-panel-in {
+  from { opacity: 0; transform: translateY(0.75em); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+// ── Базовый блок панели ──────────────────────────────────────────────────────
+.pe-panel {
+  @include panel-appear;
+  @include glass-bg(rgba(22,22,36,.96));
+  border: 1px solid var(--pe-border);
+  border-radius: $panel-radius;
+  display: flex;
+  flex-direction: column;
+  gap: $panel-gap;
+  padding: $panel-pad-v $panel-pad-h;
+  position: absolute;
+  z-index: $panel-z;
+
+  // Все скрытые панели
+  &[hidden],
+  &.is-hidden { display: none; }
+
+  // ── Шапка панели ──────────────────────────────────────────────────────
+  &__header {
+    align-items: center;
+    display: flex;
+    gap: 0.5em;
+    justify-content: space-between;
+    margin-bottom: 0.125em;
+    min-height: 1.75em;
+  }
+
+  &__title {
+    color: hsla(0,0%,100%,.35);
+    font-size: 0.6875em;  // 11px
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+  }
+
+  // Группа кнопок «Отмена» + «Применить» в правом углу шапки
+  &__header-actions {
+    align-items: center;
+    display: flex;
+    gap: 0.25em;
+    margin-left: auto;
+  }
+
+  // Единообразная кнопка закрытия панели
+  &__close {
+    @include btn-reset;
+    @include flex-center;
+    border-radius: 0.25em;
+    color: hsla(0,0%,100%,.35);
+    min-width: 1.75em;
+    min-height: 1.75em;
+
+    i { font-size: 1em; }
+
+    &:hover {
+      background: hsla(0,0%,100%,.1);
+      color: #fff;
+    }
+  }
+
+  &__row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375em;
+    align-items: center;
+  }
+
+  &__hint {
+    color: hsla(0,0%,100%,.3);
+    font-size: 0.6875em;
+    line-height: 1.4;
+  }
+
+  &__status {
+    color: hsla(0,0%,100%,.6);
+    font-size: 0.75em;
+    min-height: 0.875em;
+
+    &--ok    { color: #6dcf8a; }
+    &--error { color: #e07070; }
+  }
+
+  // Кнопки внутри панели (крупные, с иконкой и подписью)
+  &__action-btn {
+    @include btn-reset;
+    @include flex-col-center;
+    background: var(--pe-btn);
+    border: 1px solid var(--pe-border);
+    border-radius: $btn-radius;
+    color: var(--pe-text);
+    gap: 0.25em;
+    min-height: 3em;
+    min-width: 4em;
+    padding: 0.5em 0.625em;
+    transition: background $pe-transition;
+
+    &:hover { background: var(--pe-btn-hover); }
+
+    // Иконка — текст-эмоджи или icon-* класс
+    &-icon {
+      font-size: 1.375em;  // 22px
+      line-height: 1;
+    }
+
+    // Подпись — читаемый цвет (исправлен п.7)
+    &-text {
+      color: hsla(0,0%,100%,.8);
+      font-size: 0.6875em;
+    }
+  }
+}
+
+// ── Панель Экспорт ───────────────────────────────────────────────────────────
+.pe-panel--export {
+  bottom: calc(var(--pe-toolbar-h) + 0.5em);
+  min-width: 13em;
+  // left задаётся динамически через DialogManager._positionNearBtn()
+
+  .pe-panel__quality {
+    align-items: center;
+    color: hsla(0,0%,100%,.6);
+    display: flex;
+    font-size: 0.75em;
+    gap: 0.375em;
+
+    &-range {
+      accent-color: var(--pe-accent);
+      cursor: pointer;
+      flex: 1;
+    }
+
+    &-val {
+      font-variant-numeric: tabular-nums;
+      min-width: 1.375em;
+      text-align: right;
+    }
+  }
+}
+
+// ── Панель Импорт ────────────────────────────────────────────────────────────
+.pe-panel--import {
+  bottom: calc(var(--pe-toolbar-h) + 0.5em);
+  min-width: 11em;
+  // left задаётся динамически через DialogManager._positionNearBtn()
+}
+
+// ── Панель Кроп ──────────────────────────────────────────────────────────────
+// margin: auto надёжнее чем left:50%+transform внутри position:fixed контейнера
+// ── Панель Кроп — один горизонтальный тулбар, как overlay/draw ───────────────
+.pe-panel--crop {
+  border-radius: 0;
+  border-top: 1px solid var(--pe-border);
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+  bottom: var(--pe-toolbar-h);
+  left: 0;
+  right: 0;
+  padding: 0;   // нет внутренних отступов — тулбар сам управляет высотой
+
+  // Один горизонтальный ряд
+  .pe-panel__crop-toolbar {
+    align-items: center;
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 0;
+    height: 2.75em;  // одна строка, как тулбар
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0 0.375em;
+    scrollbar-width: none;
+
+    &::-webkit-scrollbar { display: none; }
+  }
+
+  // Разделитель между группами
+  .pe-panel__crop-sep {
+    background: var(--pe-border);
+    flex-shrink: 0;
+    height: 1.5em;
+    margin: 0 0.375em;
+    width: 1px;
+  }
+
+  // Пружина для прижатия «Применить» вправо
+  .pe-panel__crop-spacer {
+    flex: 1;
+  }
+
+  // Кнопки в тулбаре кропа
+  .pe-panel__crop-tb-btn {
+    @include btn-reset;
+    align-items: center;
+    border-radius: $btn-radius;
+    color: hsla(0,0%,100%,.7);
+    display: flex;
+    flex-shrink: 0;
+    gap: 0.3125em;
+    height: 2em;
+    justify-content: center;
+    min-width: 2em;
+    padding: 0 0.375em;
+    transition: background $pe-transition, color $pe-transition;
+
+    i { font-size: $icon-size-sm; line-height: 1; }
+
+    &:hover {
+      background: hsla(0,0%,100%,.1);
+      color: #fff;
+    }
+
+    &--apply {
+      background: var(--pe-success);
+      color: #fff;
+      margin-left: 0.25em;
+      padding: 0 0.625em;
+
+      &:hover { background: var(--pe-success-hover); }
+    }
+  }
+
+  .pe-panel__crop-tb-label {
+    font-size: 0.75em;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  // Кнопки соотношений сторон — такие же мелкие таблетки, без переноса
+  .pe-panel__crop-ratio-btn {
+    @include btn-reset;
+    background: hsla(0,0%,100%,.08);
+    border: 1px solid var(--pe-border);
+    border-radius: 0.375em;
+    color: hsla(0,0%,100%,.7);
+    flex-shrink: 0;
+    font-family: inherit;
+    font-size: 0.625em;
+    font-weight: 600;
+    height: 1.75em / 0.625em * 1em; // выравниваем высоту
+    padding: 0 0.625em;
+    transition: background $pe-transition, color $pe-transition, border-color $pe-transition;
+    white-space: nowrap;
+    line-height: 1;
+    align-items: center;
+    display: flex;
+    margin: 0 0.125em;
+
+    &:hover {
+      background: hsla(0,0%,100%,.14);
+      color: #fff;
+    }
+
+    &.is-active {
+      background: rgba(74,158,255,.25);
+      border-color: var(--pe-accent);
+      color: var(--pe-accent);
+    }
+  }
+}
+
+
+// ── Панель Оверлей ───────────────────────────────────────────────────────────
+.pe-panel--overlay {
+  border-radius: 0;
+  border-top: 1px solid var(--pe-border);
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+  bottom: var(--pe-toolbar-h);
+  left: 0;
+  right: 0;
+  padding: 0.5em 0.75em 0.625em;
+
+  @media (min-width: 30em) { // 480px
+    margin: 0 13.75em;  // отступы под панели импорт/экспорт
+  }
+
+  // Кнопки «+Текст» / «+Фото» слева в шапке
+  .overlay-panel__add-btns {
+    display: flex;
+    gap: 0.25em;
+    align-items: center;
+  }
+
+  .overlay-panel {
+    // Строка элементов
+    &__row {
+      align-items: center;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.375em;
+
+      label {
+        align-items: center;
+        color: hsla(0,0%,100%,.6);
+        display: flex;
+        font-size: 0.75em;
+        gap: 0.3125em;
+        white-space: nowrap;
+      }
+    }
+
+    &__lbl-text {
+      color: hsla(0,0%,100%,.35);
+      font-size: 0.6875em;
+    }
+
+    &__opacity,
+    &__rotation,
+    &__stroke-width {
+      accent-color: var(--pe-accent);
+      cursor: pointer;
+      width: 5.625em;
+
+      @media (min-width: 30em) { width: 6.875em; }
+    }
+
+    &__val-opacity,
+    &__val-rotation,
+    &__val-stroke {
+      font-variant-numeric: tabular-nums;
+      font-size: 0.75em;
+      min-width: 1.375em;
+      text-align: right;
+    }
+
+    &__text-input {
+      background: hsla(0,0%,100%,.08);
+      border: 1px solid var(--pe-border);
+      border-radius: 0.25em;
+      color: #fff;
+      font-size: 0.8125em;
+      outline: none;
+      padding: 0.3125em 0.5625em;
+      transition: border-color $pe-transition;
+      width: 8.75em;
+
+      &:focus { border-color: var(--pe-accent); }
+
+      @media (min-width: 30em) { width: 10em; }
+    }
+
+    &__stroke-color,
+    &__text-color {
+      background: none;
+      border: 1px solid var(--pe-border);
+      border-radius: 0.25em;
+      cursor: pointer;
+      height: 1.75em;
+      padding: 0.0625em 0.125em;
+      width: 2.125em;
+    }
+
+    &__lock-label {
+      align-items: center;
+      cursor: pointer;
+      display: flex !important;
+      gap: 0.3125em;
+
+      input[type=checkbox] {
+        accent-color: var(--pe-accent);
+        height: 1em;
+        width: 1em;
+      }
+    }
+
+    // Шрифт и жирность
+    &__font-family {
+      background: hsla(0,0%,100%,.08);
+      border: 1px solid var(--pe-border);
+      border-radius: 0.25em;
+      color: #fff;
+      font-family: inherit;
+      font-size: 0.75em;
+      max-width: 9em;
+      outline: none;
+      padding: 0.25em 0.375em;
+
+      option { background: #222; color: #fff; }
+    }
+
+    &__font-size {
+      accent-color: var(--pe-accent);
+      cursor: pointer;
+      width: 5em;
+    }
+
+    &__val-font-size {
+      font-variant-numeric: tabular-nums;
+      font-size: 0.75em;
+      min-width: 1.5em;
+      text-align: right;
+    }
+
+    &__font-weight {
+      accent-color: var(--pe-accent);
+      height: 1em;
+      width: 1em;
+    }
+
+    // История
+    &__history {
+      border-top: 1px solid var(--pe-border);
+      padding-top: 0.5em;
+
+      &-label {
+        color: hsla(0,0%,100%,.3);
+        font-size: 0.625em;
+        font-weight: 700;
+        letter-spacing: .08em;
+        margin-bottom: 0.375em;
+        text-transform: uppercase;
+      }
+
+      &-list {
+        display: flex;
+        flex-direction: row;
+        flex-wrap: nowrap;
+        gap: 0.4375em;
+        overflow-x: auto;
+        overflow-y: hidden;
+        padding-bottom: 0.25em;
+        scroll-behavior: smooth;
+        scrollbar-width: thin;
+        scrollbar-color: hsla(0,0%,100%,.15) transparent;
+
+        &::-webkit-scrollbar       { height: 3px; }
+        &::-webkit-scrollbar-track { background: transparent; }
+        &::-webkit-scrollbar-thumb { background: hsla(0,0%,100%,.15); border-radius: 2px; }
+      }
+    }
+
+    // Пресеты — тот же горизонтальный слайдер
+    &__presets {
+      border-top: 1px solid var(--pe-border);
+      padding-top: 0.5em;
+
+      &-list {
+        display: flex;
+        flex-direction: row;
+        flex-wrap: nowrap;
+        gap: 0.4375em;
+        overflow-x: auto;
+        overflow-y: hidden;
+        padding-bottom: 0.25em;
+        scroll-behavior: smooth;
+        scrollbar-width: thin;
+        scrollbar-color: hsla(0,0%,100%,.15) transparent;
+
+        &::-webkit-scrollbar       { height: 3px; }
+        &::-webkit-scrollbar-track { background: transparent; }
+        &::-webkit-scrollbar-thumb { background: hsla(0,0%,100%,.15); border-radius: 2px; }
+      }
+    }
+  }
+}
+
+// ── История оверлеев (карточки) ──────────────────────────────────────────────
+.overlay-history {
+  &__card {
+    background: hsla(0,0%,100%,.06);
+    border: 1px solid var(--pe-border);
+    border-radius: 0.625em;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3125em;
+    max-width: 7.5em;
+    //min-width: 5em;
+		min-width: 2em;
+    padding: 0.5em 0.625em 0.375em;
+    position: relative;
+    transition: background $pe-transition;
+
+    &:hover { background: hsla(0,0%,100%,.12); }
+  }
+
+  &__btn-delete {
+    @include btn-reset;
+    border-radius: 0.1875em;
+    color: hsla(0,0%,100%,.3);
+    font-size: 0.625em;
+    padding: 0.125em 0.1875em;
+    position: absolute;
+    right: 0.25em;
+    top: 0.1875em;
+
+    &:hover { background: rgba(200,50,50,.2); color: #f88; }
+  }
+
+  &__previews {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25em;
+  }
+
+  &__thumb {
+    border: 1px solid var(--pe-border);
+    border-radius: 0.25em;
+    height: 1.875em;
+    object-fit: cover;
+    width: 1.875em;
+
+    &--text {
+      @include flex-center;
+      font-size: 0.625em;
+      font-weight: 700;
+      overflow: hidden;
+    }
+
+    &--img,
+    &--text {
+      background-color: #333;
+      background-image:
+        linear-gradient(45deg, #555 25%, transparent 0),
+        linear-gradient(-45deg, #555 25%, transparent 0),
+        linear-gradient(45deg, transparent 75%, #555 0),
+        linear-gradient(-45deg, transparent 75%, #555 0);
+      background-position: 0 0, 0 4px, 4px -4px, -4px 0;
+      background-size: 0.5em 0.5em;
+    }
+  }
+
+  &__summary {
+    color: hsla(0,0%,100%,.3);
+    font-size: 0.625em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+
+// ── Панель DrawTool ───────────────────────────────────────────────────────────
+.pe-panel--draw {
+  border-radius: 0;
+  border-top: 1px solid var(--pe-border);
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+  bottom: var(--pe-toolbar-h);
+  left: 0;
+  right: 0;
+  padding: 0.5em 0.75em 0.625em;
+
+  @media (min-width: 30em) {
+    margin: 0 13.75em;
+  }
+
+  .draw-panel {
+    &__row {
+      align-items: center;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.375em;
+    }
+
+    &__lbl {
+      align-items: center;
+      color: hsla(0,0%,100%,.6);
+      display: flex;
+      font-size: 0.75em;
+      gap: 0.3125em;
+      white-space: nowrap;
+    }
+
+    &__lbl-text {
+      color: hsla(0,0%,100%,.35);
+      font-size: 0.6875em;
+    }
+
+    &__color {
+      background: none;
+      border: 1px solid var(--pe-border);
+      border-radius: 0.25em;
+      cursor: pointer;
+      height: 1.75em;
+      padding: 0.0625em 0.125em;
+      width: 2.125em;
+    }
+
+    &__width,
+    &__opacity {
+      accent-color: var(--pe-accent);
+      cursor: pointer;
+      width: 5.625em;
+
+      @media (min-width: 30em) { width: 6.875em; }
+    }
+
+    &__val-width,
+    &__val-opacity {
+      font-variant-numeric: tabular-nums;
+      font-size: 0.75em;
+      min-width: 1.375em;
+      text-align: right;
+    }
+
+    // Блокировка пропорций
+    &__lock-label {
+      align-items: center;
+      cursor: pointer;
+      display: flex !important;
+      gap: 0.3125em;
+      font-size: 0.75em;
+      color: hsla(0,0%,100%,.6);
+
+      input[type=checkbox] {
+        accent-color: var(--pe-accent);
+        height: 0.875em;
+        width: 0.875em;
+      }
+    }
+
+    &__hint {
+      color: hsla(0,0%,100%,.3);
+      font-size: 0.6875em;
+      line-height: 1.4;
+    }
+
+    // Список наброских
+    &__sketches-wrap {
+      border-top: 1px solid var(--pe-border);
+      padding-top: 0.375em;
+    }
+
+    &__sketches-label {
+      color: hsla(0,0%,100%,.3);
+      font-size: 0.625em;
+      font-weight: 700;
+      letter-spacing: .08em;
+      margin-bottom: 0.375em;
+      text-transform: uppercase;
+    }
+
+    &__sketches-list {
+      display: flex;
+      flex-direction: row;
+      gap: 0.4375em;
+      overflow-x: auto;
+      overflow-y: hidden;
+      padding-bottom: 0.25em;
+      scroll-behavior: smooth;
+      scrollbar-width: thin;
+      scrollbar-color: hsla(0,0%,100%,.15) transparent;
+
+      &::-webkit-scrollbar       { height: 3px; }
+      &::-webkit-scrollbar-track { background: transparent; }
+      &::-webkit-scrollbar-thumb { background: hsla(0,0%,100%,.15); border-radius: 2px; }
+    }
+  }
+}
+
+// ── Карточки наброских (DrawTool) ─────────────────────────────────────────────
+.draw-sketch-card {
+  background: hsla(0,0%,100%,.06);
+  border: 1px solid var(--pe-border);
+  border-radius: 0.5em;
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0.25em;
+  position: relative;
+  transition: background $pe-transition, border-color $pe-transition;
+  width: 3.5em;    // 56px при 16px base
+
+  &:hover {
+    background: hsla(0,0%,100%,.12);
+  }
+
+  &.is-active {
+    border-color: var(--pe-accent);
+    background: rgba(60,143,224,.15);
+  }
+
+  // Кнопка × в правом верхнем углу
+  &__del {
+    @include btn-reset;
+    align-items: center;
+    background: rgba(0,0,0,.55);
+    border-radius: 0.25em;
+    color: hsla(0,0%,100%,.5);
+    display: flex;
+    font-size: 0.5625em;
+    height: 1.4em;
+    justify-content: center;
+    line-height: 1;
+    opacity: 0;
+    padding: 0;
+    position: absolute;
+    right: 0.2em;
+    top: 0.2em;
+    transition: opacity $pe-transition, color $pe-transition, background $pe-transition;
+    width: 1.4em;
+    z-index: 2;
+
+    i { font-size: 1em; }
+  }
+
+  &:hover &__del,
+  &.is-active &__del {
+    opacity: 1;
+  }
+
+  &__del:hover {
+    background: rgba(200,50,50,.8);
+    color: #fff;
+  }
+
+  // Миниатюра наброска
+  &__thumb {
+    border-radius: 0.25em;
+    display: block;
+    height: 3em;     // 48px
+    object-fit: contain;
+    width: 100%;
+
+    // Шахматный фон для прозрачности
+    background-color: #2a2a3a;
+    background-image:
+      linear-gradient(45deg, #333 25%, transparent 0),
+      linear-gradient(-45deg, #333 25%, transparent 0),
+      linear-gradient(45deg, transparent 75%, #333 0),
+      linear-gradient(-45deg, transparent 75%, #333 0);
+    background-position: 0 0, 0 4px, 4px -4px, -4px 0;
+    background-size: 0.5em 0.5em;
+
+    &--empty {
+      border: 1px dashed hsla(0,0%,100%,.15);
+    }
+  }
+
+  // Полоска цвета снизу
+  &__color {
+    border-radius: 0 0 0.25em 0.25em;
+    height: 0.25em;
+    margin-top: 0.1875em;
+    width: 100%;
+  }
+}
+
+// ── Диалог «О редакторе» ─────────────────────────────────────────────────────
+.pe-info-dialog {
+  bottom: calc(var(--pe-toolbar-h) + 0.5em);
+  min-width: 16em;
+
+  &__table {
+    border-collapse: collapse;
+    font-size: 0.75em;
+    width: 100%;
+
+    tr {
+      border-bottom: 1px solid hsla(0,0%,100%,.07);
+
+      &:last-child { border-bottom: none; }
+    }
+
+    td {
+      padding: 0.3125em 0.25em;
+      vertical-align: top;
+    }
+  }
+
+  &__key {
+    color: hsla(0,0%,100%,.35);
+    font-size: 0.9167em; // ~11px
+    font-weight: 600;
+    letter-spacing: .04em;
+    padding-right: 0.75em;
+    white-space: nowrap;
+  }
+
+  &__reset-btn {
+    margin-top: 0.25em;
+    font-size: 0.75em !important;
+    background: hsla(0,0%,100%,.07) !important;
+    border: 1px solid var(--pe-border) !important;
+    width: 100%;
+    justify-content: center;
+
+    &:hover { background: rgba(200,50,50,.2) !important; color: #f88 !important; }
+  }
+
+  &__reset-status {
+    font-size: 0.6875em;
+    min-height: 1em;
+    text-align: center;
+    margin-top: 0.25em;
+
+    &--ok { color: #6dcf8a; }
+  }
+}
+
+// ── Панель MaskTool ───────────────────────────────────────────────────────────
+.pe-panel--mask {
+  border-radius: 0;
+  border-top: 1px solid var(--pe-border);
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+  bottom: var(--pe-toolbar-h);
+  left: 0;
+  right: 0;
+  padding: 0.625em 0.75em 0.75em;
+
+  @media (min-width: 30em) {
+    margin: 0 13.75em;
+  }
+
+  .mask-panel {
+    &__row {
+      align-items: center;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.375em;
+    }
+
+    &__lbl {
+      align-items: center;
+      color: hsla(0,0%,100%,.6);
+      display: flex;
+      flex: 1;          // занимает всё доступное место — слайдер растягивается
+      font-size: 0.75em;
+      gap: 0.3125em;
+      white-space: nowrap;
+    }
+
+    &__lbl-text {
+      color: hsla(0,0%,100%,.35);
+      font-size: 0.6875em;
+    }
+
+    &__block-size {
+      accent-color: var(--pe-accent);
+      cursor: pointer;
+      flex: 1;          // растягивается на всё свободное место в label
+      min-width: 5em;
+
+      @media (min-width: 30em) { min-width: 8em; }
+    }
+
+    &__val-block {
+      font-variant-numeric: tabular-nums;
+      font-size: 0.75em;
+      min-width: 1.375em;
+      text-align: right;
+    }
+
+    &__hint {
+      color: hsla(0,0%,100%,.3);
+      font-size: 0.6875em;
+      line-height: 1.4;
+    }
+
+    // Список областей — переиспользуем стили draw-sketch-card
+    &__regions-wrap {
+      border-top: 1px solid var(--pe-border);
+      padding-top: 0.375em;
+    }
+
+    &__regions-label {
+      color: hsla(0,0%,100%,.3);
+      font-size: 0.625em;
+      font-weight: 700;
+      letter-spacing: .08em;
+      margin-bottom: 0.375em;
+      text-transform: uppercase;
+    }
+
+    &__regions-list {
+      display: flex;
+      flex-direction: row;
+      gap: 0.4375em;
+      overflow-x: auto;
+      overflow-y: hidden;
+      padding-bottom: 0.25em;
+      scroll-behavior: smooth;
+      scrollbar-width: thin;
+      scrollbar-color: hsla(0,0%,100%,.15) transparent;
+
+      &::-webkit-scrollbar       { height: 3px; }
+      &::-webkit-scrollbar-track { background: transparent; }
+      &::-webkit-scrollbar-thumb { background: hsla(0,0%,100%,.15); border-radius: 2px; }
+    }
+  }
+}
+
+
+// ── Мобильная адаптация панелей (≤ 600px) ────────────────────────────────────
+// Цель: уменьшить высоту панелей, не закрывающих изображение на телефоне.
+// Подход: меньше шрифт, меньше отступы, скрыть заголовки и подсказки,
+//         иконки вместо текстовых кнопок, компактный тулбар кропа.
+
+@media (max-width: 37.5em) { // 600px
+
+  // ── Базовая панель: меньше padding и gap ──────────────────────────────────
+  .pe-panel {
+    padding: 0.375em 0.5em 0.4em;
+    gap: 0.3em;
+
+    // Шапка — компактнее, но не скрываем (там кнопки действий)
+    &__header { margin-bottom: 0; min-height: 1.5em; }
+
+    // Мельче кнопки действий
+    &__action-btn {
+      min-height: 2.375em;
+      min-width: 3em;
+      padding: 0.375em 0.375em;
+
+      &-icon { font-size: 1.125em; }
+      &-text { font-size: 0.5625em; }
+    }
+
+    // На мобильных кнопки «Отмена»/«Применить» — только иконки
+    &__header-actions {
+      .photoeditor__button {
+        font-size: 0.75em;
+        padding: 0 0.375em;
+        & > :not(i) { display: none; }
+      }
+    }
+  }
+
+  // ── Скрываем подсказки во всех панелях ───────────────────────────────────
+  .pe-panel__hint,
+  .mask-panel__hint,
+  .draw-panel__hint { display: none; }
+
+  // ── Overlay: компактнее ──────────────────────────────────────────────────
+  .pe-panel--overlay {
+    padding: 0.3em 0.5em 0.35em;
+
+    .overlay-panel__row { gap: 0.25em; }
+
+    .overlay-panel__lbl-text { display: none; } // скрываем текстовые метки
+
+    .overlay-panel__opacity,
+    .overlay-panel__rotation { width: 4.5em; }
+
+    .overlay-panel__text-input { width: 6em; }
+  }
+
+  // ── Draw: компактнее ─────────────────────────────────────────────────────
+  .pe-panel--draw {
+    padding: 0.3em 0.5em 0.35em;
+
+    .draw-panel__row { gap: 0.25em; }
+    .draw-panel__lbl-text { display: none; }
+    .draw-panel__width,
+    .draw-panel__opacity { width: 4.5em; }
+
+    // Список скетчей — чуть меньше
+    .draw-panel__sketches-label { display: none; }
+  }
+
+  // ── Mask: компактнее ─────────────────────────────────────────────────────
+  .pe-panel--mask {
+    padding: 0.3em 0.5em 0.35em;
+
+    .mask-panel__row { gap: 0.25em; }
+    .mask-panel__lbl-text { display: none; }
+
+    .mask-panel__regions-label { display: none; }
+  }
+
+  // ── Crop: ещё компактнее тулбар ──────────────────────────────────────────
+  .pe-panel--crop {
+    .pe-panel__crop-toolbar { height: 2.375em; padding: 0 0.25em; }
+
+    .pe-panel__crop-tb-btn {
+      height: 1.75em;
+      min-width: 1.75em;
+      padding: 0 0.25em;
+
+      i { font-size: $icon-size-sm * 0.9; }
+    }
+
+    .pe-panel__crop-tb-label { display: none; } // только иконка на кнопке «Применить»
+
+    .pe-panel__crop-tb-btn--apply {
+      padding: 0 0.5em;
+    }
+
+    .pe-panel__crop-ratio-btn { font-size: 0.5625em; padding: 0 0.4em; }
+  }
+
+  // ── Export/Import панели ─────────────────────────────────────────────────
+  .pe-panel--export,
+  .pe-panel--import {
+    .pe-panel__quality { font-size: 0.6875em; }
+    .pe-panel__hint    { display: none; }
+  }
+
+  // ── Info dialog ──────────────────────────────────────────────────────────
+  .pe-info-dialog {
+    &__table { font-size: 0.625em; }
+  }
+}
+.pe-panel--adjust {
+  border-radius: 0;
+  border-top: 1px solid var(--pe-border);
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+  bottom: var(--pe-toolbar-h);
+  left: 0;
+  right: 0;
+  padding: 0.5em 0.75em 0.6em;
+
+  @media (min-width: 30em) {
+    margin: 0 13.75em;
+  }
+
+  .adj-panel {
+
+    &__header-left {
+      align-items: center;
+      display: flex;
+      gap: 0.5em;
+    }
+
+    &__sliders {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25em;
+    }
+
+    &__row {
+      align-items: center;
+      display: flex;
+      gap: 0.375em;
+    }
+
+    &__lbl {
+      color: hsla(0,0%,100%,.5);
+      font-size: 0.6875em;
+      // Фиксированная ширина = самая длинная метка «Насыщенность»
+      // Все ползунки выравниваются в одну линию
+      width: 7.5em;
+      flex-shrink: 0;
+      white-space: nowrap;
+      cursor: default;
+    }
+
+    // ── Кастомный ползунок ─────────────────────────────────────────────────
+    &__range {
+      --adj-fill-from:  50%;
+      --adj-fill-to:    50%;
+      --adj-fill-color: hsla(0,0%,100%,.25);
+
+      appearance: none;
+      -webkit-appearance: none;
+      background: linear-gradient(
+        to right,
+        hsla(0,0%,100%,.12) 0%,
+        hsla(0,0%,100%,.12) var(--adj-fill-from),
+        var(--adj-fill-color)  var(--adj-fill-from),
+        var(--adj-fill-color)  var(--adj-fill-to),
+        hsla(0,0%,100%,.12) var(--adj-fill-to),
+        hsla(0,0%,100%,.12) 100%
+      );
+      border-radius: 0.25em;
+      cursor: pointer;
+      flex: 1;
+      height: 0.3125em;
+      outline: none;
+
+      // Thumb — Chrome/Safari
+      &::-webkit-slider-thumb {
+        appearance: none;
+        -webkit-appearance: none;
+        background: #fff;
+        border-radius: 50%;
+        box-shadow: 0 0 0 2px rgba(0,0,0,.3);
+        height: 1em;
+        width:  1em;
+        cursor: pointer;
+        transition: transform $pe-transition;
+
+        &:hover { transform: scale(1.2); }
+      }
+
+      // Thumb — Firefox
+      &::-moz-range-thumb {
+        background: #fff;
+        border: none;
+        border-radius: 50%;
+        box-shadow: 0 0 0 2px rgba(0,0,0,.3);
+        height: 1em;
+        width:  1em;
+        cursor: pointer;
+      }
+
+      &:focus-visible {
+        outline: 2px solid var(--pe-accent);
+        outline-offset: 2px;
+      }
+    }
+
+    &__val {
+      color: hsla(0,0%,100%,.65);
+      font-size: 0.6875em;
+      font-variant-numeric: tabular-nums;
+      width: 2.75em;
+      flex-shrink: 0;
+      text-align: right;
+    }
+
+    // Кнопка сброса одного ползунка
+    &__reset-one {
+      appearance: none;
+      background: none;
+      border: none;
+      border-radius: 0.25em;
+      color: hsla(0,0%,100%,.25);
+      cursor: pointer;
+      font-size: 0.625em;
+      height: 1.75em;
+      line-height: 1;
+      padding: 0 0.25em;
+      transition: color $pe-transition, background $pe-transition;
+
+      &:hover { background: hsla(0,0%,100%,.1); color: hsla(0,0%,100%,.8); }
+
+      i { font-size: 1.1em; }
+    }
+
+    &__btn-reset {
+      background: hsla(0,0%,100%,.07) !important;
+      border-color: transparent !important;
+    }
+  }
+}
+
+// Мобильная адаптация коррекции
+@media (max-width: 37.5em) {
+  .pe-panel--adjust {
+    padding: 0.3em 0.5em 0.4em;
+
+    .adj-panel {
+      &__lbl     { width: 5.5em; flex-shrink: 0; font-size: 0.625em; }
+      &__val     { width: 1.75em; }
+      &__sliders { gap: 0.15em; }
+
+      // Сбросить — только иконка на мобильных
+      &__btn-reset {
+        font-size: 0.75em;
+        & > :not(i) { display: none; }
+      }
+    }
+  }
+}
+
+
+// ─── HealTool panel ──────────────────────────────────────────────────────────
+// ── HealTool panel v3 ──────────────────────────────────────────────────────
+.pe-panel--heal {
+  bottom: calc(var(--pe-toolbar-h) + 0.5em);
+  left: 0.5em;
+  min-width: 16em;
+  max-width: 22em;
+
+  .heal-panel {
+    &__lbl {
+      align-items: center;
+      color: hsla(0,0%,100%,.6);
+      display: flex;
+      flex: 1;
+      font-size: 0.75em;
+      gap: 0.5em;
+      white-space: nowrap;
+    }
+
+    &__lbl-text {
+      color: hsla(0,0%,100%,.4);
+      font-size: 0.875em;
+      min-width: 3.25em;
+    }
+
+    &__brush-size,
+    &__search-mult {
+      accent-color: var(--pe-accent);
+      cursor: pointer;
+      flex: 1;
+      min-width: 6em;
+    }
+
+    &__val {
+      font-variant-numeric: tabular-nums;
+      font-size: 0.75em;
+      min-width: 2em;
+      text-align: right;
+    }
+
+    &__row--actions {
+      border-top: 1px solid var(--pe-border);
+      margin-top: 0.25em;
+      padding-top: 0.25em;
+    }
+  }
+
+  .pe-panel__hint {
+    color: hsla(0,0%,100%,.3);
+    font-size: 0.6875em;
+    line-height: 1.4;
+    margin-top: 0.25em;
+  }
+}
+
+
+// ─── Диалог подтверждения закрытия ─────────────────────────────────────────
+// .pe-close-confirm-overlay — затемняющий оверлей поверх редактора
+// .pe-close-confirm         — сам диалог
+
+.pe-close-confirm-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, .55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: pe-panel-in .15s ease;
+}
+
+.pe-close-confirm {
+  background: rgba(22, 22, 36, .97);
+  border: 1px solid var(--pe-border);
+  border-radius: $panel-radius;
+  padding: 1.5rem 1.75rem 1.25rem;
+  max-width: 22rem;
+  width: calc(100% - 2rem);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, .6);
+  display: flex;
+  flex-direction: column;
+  gap: .875rem;
+
+  &__message {
+    margin: 0;
+    color: var(--pe-text);
+    font-size: .9rem;
+    line-height: 1.5;
+  }
+
+  &__actions {
+    display: flex;
+    gap: .625rem;
+    justify-content: flex-end;
+  }
+
+  &__btn {
+    padding: .45rem 1rem;
+    border: none;
+    border-radius: 6px;
+    font-size: .85rem;
+    cursor: pointer;
+    transition: background .15s, opacity .15s;
+
+    &--secondary {
+      background: var(--pe-btn);
+      color: var(--pe-text);
+
+      &:hover  { background: var(--pe-btn-hover); }
+      &:active { opacity: .8; }
+    }
+
+    &--primary {
+      background: var(--pe-btn-active);
+      color: #fff;
+      font-weight: 600;
+
+      &:hover  { filter: brightness(1.15); }
+      &:active { opacity: .85; }
+
+      &:focus-visible {
+        outline: 2px solid var(--pe-accent);
+        outline-offset: 2px;
+      }
+    }
+  }
+}

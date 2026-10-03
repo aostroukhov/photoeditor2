@@ -1,0 +1,44 @@
+// ─── Переменные PhotoEditor ───────────────────────────────────────────────────
+// Базовый font-size задаётся на .photoeditor__container = 16px.
+// Все размеры внутри компонента — в em относительно этого элемента.
+
+// Цвета (CSS-переменные для возможности переопределения снаружи)
+$pe-vars: (
+  --pe-text:         #fff,
+  --pe-bg:           rgba(0,0,0,.92),
+  --pe-border:       hsla(0,0%,100%,.15),
+  --pe-btn:          #3a3a52,
+  --pe-btn-hover:    #4e4e6e,
+  --pe-btn-active:   #2563b8,
+  --pe-accent:       #4a9eff,
+  --pe-danger:       #7a2020,
+  --pe-danger-hover: #a33030,
+  --pe-success:      #1a6336,
+  --pe-success-hover:#238c4e,
+  --pe-toolbar-h:    4.5em,   // 72px / 16
+);
+
+// Анимация
+$pe-transition: .15s ease;
+
+// Тулбар
+$toolbar-btn-min-w:  3.5em;   // 56px
+$toolbar-icon-size:  1.5em;   // 24px
+$toolbar-label-size: 0.625em; // 10px
+
+// Панели
+$panel-radius:  1em;
+$panel-pad-v:   0.75em;
+$panel-pad-h:   1em;
+$panel-gap:     0.625em;
+$panel-z:       20;
+
+// Кнопка
+$btn-radius:    0.375em;
+$btn-h:         2.75em;   // 44px
+$btn-h-compact: 2.25em;   // 36px
+
+// Иконки (шрифт oinfo)
+$icon-size:     1.5em;    // 24px
+$icon-size-sm:  1.125em;  // 18px
+

@@ -1,0 +1,72 @@
+// ─── Плагин-инструменты (Plugin API) ─────────────────────────────────────────
+//
+// Базовый стиль для панелей плагинов.
+// Каждый плагин МОЖЕТ:
+//   1. Полностью использовать .pe-panel + BEM-элементы (без этого файла).
+//   2. Инжектировать свой <style> тег через JS — тогда этот файл не нужен.
+//   3. Объявить своё BEM-имя .pe-panel--my-plugin здесь ниже.
+//
+// Пример регистрации позиции панели плагина:
+//
+//   .pe-panel--watermark {
+//     @include plugin-panel-center;    // центрирование над тулбаром
+//   }
+//   .pe-panel--my-side-tool {
+//     @include plugin-panel-right;     // справа над тулбаром
+//   }
+//
+
+// ── Миксины позиционирования ─────────────────────────────────────────────────
+
+// Панель по центру над тулбаром (как CropPanel)
+@mixin plugin-panel-center($width: 22em) {
+  bottom:     calc(var(--pe-toolbar-h) + 0.625em);
+  left:       0;
+  right:      0;
+  margin:     0 auto;
+  width:      $width;
+  max-width:  calc(100% - 1.5em);
+}
+
+// Панель справа над тулбаром (как ExportPanel)
+@mixin plugin-panel-right($min-width: 13em) {
+  bottom:     calc(var(--pe-toolbar-h) + 0.5em);
+  right:      0.5em;
+  min-width:  $min-width;
+}
+
+// Панель слева над тулбаром (как ImportPanel)
+@mixin plugin-panel-left($min-width: 11em) {
+  bottom:     calc(var(--pe-toolbar-h) + 0.5em);
+  left:       0.5em;
+  min-width:  $min-width;
+}
+
+// Полноширинная полоса снизу (как OverlayPanel)
+@mixin plugin-panel-fullwidth {
+  bottom:       var(--pe-toolbar-h);
+  left:         0;
+  right:        0;
+  border-radius: 0;
+  border-top:   1px solid var(--pe-border);
+  border-left:  none;
+  border-right: none;
+  border-bottom: none;
+  padding:      0.625em 0.75em 0.75em;
+
+  @media (min-width: 30em) {
+    margin: 0 13.75em; // отступы под боковые панели
+  }
+}
+
+
+// ── Панели зарегистрированных плагинов ───────────────────────────────────────
+// Добавляйте сюда позиционирование своих панелей.
+// Это единственное место в SCSS, которое нужно трогать при добавлении плагина.
+
+// Пример: WatermarkTool (WatermarkTool.js)
+// Раскомментируйте, если хотите управлять позицией через SCSS, а не JS:
+//
+// .pe-panel--watermark {
+//   @include plugin-panel-center(22em);
+// }

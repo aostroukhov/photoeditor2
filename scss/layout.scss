@@ -1,1 +1,16 @@
+// ─── PhotoEditor — главный SCSS-файл ─────────────────────────────────────────
+// Собирает все части.
+// CSS и MAP генерируются вручную при обновлении версии — не коммитить.
+
+@import 'variables';
+@import 'mixins';
+@import 'workspace';
+@import 'toolbar';
+@import 'buttons';
+@import 'panels';
+@import 'plugins';  // Панели плагин-инструментов (Plugin API)
+
+// Совместимость: старые классы-псевдонимы для pe-workspace / pe-toolbar
+// чтобы не ломать существующие шаблоны
+.pe-workspace { @extend .photoeditor__workspace; }
 

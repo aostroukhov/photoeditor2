@@ -1,0 +1,45 @@
+// ─── Миксины PhotoEditor ──────────────────────────────────────────────────────
+
+// Сброс стилей кнопки браузера
+@mixin btn-reset {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  line-height: 1;
+  margin: 0;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+// Стеклянный размытый фон (iOS-стиль)
+@mixin glass-bg($color: rgba(14,14,22,.96)) {
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  background: $color;
+}
+
+// Анимация появления панели снизу
+@mixin panel-appear {
+  animation: pe-panel-in .2s ease both;
+}
+
+// Flex-центрирование
+@mixin flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+// Flex-колонка с центрированием (кнопки тулбара)
+@mixin flex-col-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+

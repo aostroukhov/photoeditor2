@@ -1,0 +1,164 @@
+// ─── Тулбар — iOS-стиль ───────────────────────────────────────────────────────
+// BEM: .pe-toolbar / .pe-toolbar__group / .pe-toolbar__btn / .pe-toolbar__btn--*
+// .pe-icon — иконка через CSS-шрифт oinfo
+
+.pe-toolbar {
+  align-items: stretch;
+  @include glass-bg(rgba(14,14,22,.96));
+  border-top: 1px solid var(--pe-border);
+  bottom: 0;
+  display: flex;
+  height: var(--pe-toolbar-h);
+  left: 0;
+  padding-bottom: env(safe-area-inset-bottom, 0);
+  position: fixed;
+  right: 0;
+  z-index: 30;
+
+  // ── Группы ──────────────────────────────────────────────────────────────
+  &__group {
+    align-items: stretch;
+    display: flex;
+
+    &--tools {
+      flex: 1;
+      justify-content: flex-start;
+    }
+
+    &--actions {
+      align-items: stretch;
+      display: flex;
+      margin-left: auto;
+    }
+  }
+
+  // ── Кнопка ──────────────────────────────────────────────────────────────
+  &__btn {
+    @include btn-reset;
+    @include flex-col-center;
+
+    border-right: 1px solid hsla(0,0%,100%,.1);
+    color: hsla(0,0%,100%,.55);
+    // Отступ: сверху больше чтобы иконка была выше центра, снизу — подпись
+    gap: 0.375em;          // 6px — увеличен с 4px
+    height: 100%;
+    letter-spacing: .02em;
+    min-width: $toolbar-btn-min-w;
+    padding: 0.625em 0.625em 0.5em; // top 10px, sides 10px, bottom 8px
+    transition: background $pe-transition, color $pe-transition;
+
+    &:last-child { border-right: none; }
+
+    &:hover,
+    &:focus-visible {
+      background: hsla(0,0%,100%,.07);
+      color: #fff;
+      outline: none;
+    }
+
+    &:active { background: hsla(0,0%,100%,.12); }
+
+    // Активный инструмент — акцентный цвет, без полосок (iOS)
+    &.is-active {
+      color: var(--pe-accent);
+
+      .pe-icon { color: var(--pe-accent); }
+    }
+
+    // Кнопка «Закрыть»
+    &--close {
+      border-left: 1px solid hsla(0,0%,100%,.1);
+      border-right: none;
+      color: hsla(0,0%,100%,.55);
+      min-width: $toolbar-btn-min-w;
+
+      &:hover {
+        background: rgba(200,50,50,.18);
+        color: #f88;
+      }
+    }
+  }
+
+  // ── Элементы кнопки ─────────────────────────────────────────────────────
+  &__label {
+    font-size: $toolbar-label-size;
+    line-height: 1;
+    text-align: center;
+  }
+}
+
+// Иконка oinfo-шрифта в тулбаре и панелях
+.pe-icon {
+  display: block;
+  flex-shrink: 0;
+  font-size: $icon-size;
+  line-height: 1;
+}
+
+// ── Адаптив ─────────────────────────────────────────────────────────────────
+@media (min-width: 48em) { // 768px
+  .pe-toolbar {
+    &__btn     { min-width: 4em; }   // 64px
+    &__label   { font-size: 0.6875em; } // 11px
+  }
+}
+
+@media (max-width: 25em) { // 400px
+  .pe-toolbar {
+    &__btn     { min-width: 2.875em; padding: 0.375em; }
+    &__label   { display: none; }
+  }
+}
+
+
+// ── Мобильная адаптация тулбара (≤ 600px) ─────────────────────────────────────
+// Уменьшаем высоту тулбара чтобы больше места отдать изображению
+@media (max-width: 37.5em) {
+  .photoeditor__container {
+    --pe-toolbar-h: 3.5em; // 56px вместо 72px
+  }
+
+  .pe-toolbar {
+    &__btn {
+      min-width: 2.625em;
+      padding: 0.375em 0.375em 0.3em;
+      gap: 0.25em;
+    }
+
+    // На мобиле всегда скрываем подписи кнопок тулбара
+    &__label { display: none; }
+  }
+
+  .pe-icon { font-size: 1.25em; }
+}
+
+// ── Undo / Redo + history badge ───────────────────────────────────────────────
+.pe-toolbar__btn--undo,
+.pe-toolbar__btn--redo {
+  position: relative;
+
+  &:disabled {
+    opacity: 0.35;
+    pointer-events: none;
+  }
+}
+
+.pe-history-badge {
+  background: var(--pe-accent, #4a9eff);
+  border-radius: 2em;
+  color: #fff;
+  display: none;
+  font-size: 0.55em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  padding: 0.15em 0.4em;
+  position: absolute;
+  right: 0.1em;
+  top:   0.2em;
+  white-space: nowrap;
+
+  &:not(:empty) { display: block; }
+
+  // Предупреждение: история заполнена
+  &[data-warn="1"] { background: var(--pe-warn, #e8853a); }
+}
