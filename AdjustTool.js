@@ -270,11 +270,7 @@ export class AdjustTool {
     out.height = this._fullOrigHeight;
     out.getContext('2d').putImageData(cloned, 0, 0);
 
-    const url    = out.toDataURL('image/png');
-    const newImg = new Image();
-    newImg.onload  = () => { pe.commitImage(newImg); };
-    newImg.onerror = () => console.error('[AdjustTool] apply(): не удалось декодировать результат');
-    newImg.src = url;
+    pe.commitCanvas(out).catch(err => console.error('[AdjustTool] apply():', err));
 
     this.params = { ...CFG.defaults };
     this._destroyInternal();

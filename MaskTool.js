@@ -249,12 +249,7 @@ export class MaskTool {
       pixelateRect(ctx, srcCanvas, rx, ry, rw, rh, blockPx, rx, ry, rw, rh);
     }
 
-    // Результат фиксируется только через commitImage (он же обновляет imgElement).
-    const url    = out.toDataURL('image/png');
-    const newImg = new Image();
-    newImg.onload  = () => { pe.commitImage(newImg); };
-    newImg.onerror = () => console.error('[MaskTool] apply(): не удалось декодировать результат');
-    newImg.src = url;
+    pe.commitCanvas(out).catch(err => console.error('[MaskTool] apply():', err));
 
     this.regions  = [];
     this.selected = null;

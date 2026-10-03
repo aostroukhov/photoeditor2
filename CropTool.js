@@ -490,22 +490,20 @@ export class CropTool {
     ctx.rotate(deg * Math.PI / 180);
     ctx.drawImage(src, -sw / 2, -sh / 2);
 
-    const dataUrl = canvas.toDataURL('image/png');
-    const newImg  = new Image();
-    newImg.onload = () => {
+    this.photoEditor.commitCanvas(canvas).then(() => {
       this.#rotatingImage = false;
-      if (!this.isActive) return;           // инструмент закрыли, пока декодировали
-      this.photoEditor.commitImage(newImg); // обновляет img, imgElement, info, history
+      if (!this.isActive) return;           // инструмент закрыли, пока кодировали
       this.naturalCropArea = null;          // область устарела после поворота
       // Именованный слушатель — снимается в #unbindEvents, если инструмент
       // уничтожат до загрузки (иначе создавался «зомби»-canvas с обработчиками).
-      this.photoEditor.imgElement?.addEventListener('load', this.#onRotateLoadBound, { once: true });
-    };
-    newImg.onerror = () => {
+      const imgEl = this.photoEditor.imgElement;
+      if (!imgEl) return;
+      if (imgEl.complete && imgEl.naturalWidth) this.#onRotateLoad();
+      else imgEl.addEventListener('load', this.#onRotateLoadBound, { once: true });
+    }).catch(err => {
       this.#rotatingImage = false;
-      console.error('[CropTool] rotate: не удалось декодировать повёрнутое изображение');
-    };
-    newImg.src = dataUrl;
+      console.error('[CropTool] rotate:', err);
+    });
   }
 
   /** Пересоздаёт canvas-оверлей под размеры повёрнутого изображения. */
@@ -1078,17 +1076,11 @@ export class CropTool {
     // Сохранение в источник (this.photoEditor.export) происходит только при
     // явном закрытии редактора через requestClose() — не здесь.
 
-    const url    = out.toDataURL('image/png');
-    const newImg = new Image();
-    newImg.onload = () => {
-      this.photoEditor.commitImage(newImg);
+    this.photoEditor.commitCanvas(out).then(() => {
       // Уведомляем OverlayTool о смене изображения — он перерисует свои оверлеи
       const ov = this.photoEditor.tools?.overlay;
-      // redraw() — публичный метод OverlayTool; прямой вызов #draw() невозможен
-      // из-за ES2022 Private Fields (SyntaxError при доступе к # из другого класса).
       if (ov?.overlayCanvas) requestAnimationFrame(() => ov.redraw());
-    };
-    newImg.src = url;
+    }).catch(err => console.error('[CropTool] crop():', err));
 
     this.naturalCropArea = null;
     this.cropRotation    = 0;

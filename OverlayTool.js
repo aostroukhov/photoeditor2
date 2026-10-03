@@ -304,13 +304,7 @@ export class OverlayTool {
   apply() {
     this.#saveHistory();
     const result = this.renderToCanvas();
-
-    const url    = result.toDataURL('image/png');
-    const newImg = new Image();
-    newImg.onload = () => {
-      this.photoEditor.commitImage(newImg);
-    };
-    newImg.src = url;
+    this.photoEditor.commitCanvas(result).catch(err => console.error('[OverlayTool] apply():', err));
 
     this.overlays = [];
     this.selected = null;

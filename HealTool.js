@@ -518,13 +518,9 @@ export class HealTool {
     applyHealingBrush(imgData, iw, ih, native, this.searchMult);
     ctx.putImageData(imgData, 0, 0);
 
-    // Результат фиксируется только через commitImage (история, dirty-флаг).
+    // Результат фиксируется только через commitCanvas (история, dirty-флаг).
     // Экспорт в источник — отдельное действие пользователя (ExportPanel / requestClose).
-    const url    = srcCanvas.toDataURL('image/png');
-    const newImg = new Image();
-    newImg.onload  = () => { pe.commitImage(newImg); };
-    newImg.onerror = () => console.error('[HealTool] apply(): не удалось декодировать результат');
-    newImg.src = url;
+    pe.commitCanvas(srcCanvas).catch(err => console.error('[HealTool] apply():', err));
 
     this._strokes = []; this._hasPreview = false;
     this._destroyInternal();

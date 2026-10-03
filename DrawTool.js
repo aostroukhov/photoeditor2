@@ -395,12 +395,7 @@ export class DrawTool {
    */
   apply() {
     const result = this.#renderToCanvas();
-    const url    = result.toDataURL('image/png');
-    const newImg = new Image();
-    newImg.onload = () => {
-      this.photoEditor.commitImage(newImg);
-    };
-    newImg.src = url;
+    this.photoEditor.commitCanvas(result).catch(err => console.error('[DrawTool] apply():', err));
     this.sketches = [];
     this.selected = null;
     this.#destroyInternal();

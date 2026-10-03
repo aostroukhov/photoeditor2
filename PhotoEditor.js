@@ -11,6 +11,7 @@ import { DialogManager }  from './DialogManager.js';
 import { EditorConfig }   from './EditorConfig.js';
 import { HistoryManager } from './HistoryManager.js';
 import { isEditableTarget, escapeHtml } from './utils.js';
+import { canvasToBlob, blobToImage } from './canvasUtils.js';
 
 /**
  * PhotoEditor v3.6
@@ -55,7 +56,7 @@ import { isEditableTarget, escapeHtml } from './utils.js';
  *   #handleToolClick, #handleActionClick
  *   #showCloseConfirmDialog, #exportToTarget
  *   #showInfoDialog, #guessFormat, #formatFileSize
- *   #pushHistory, #undo, #redo, #updateHistoryUI, #updateInfo
+ *   #setCurrentImage, #releaseImage, #pushHistory, #undo, #redo, #updateHistoryUI, #updateInfo
  *   static #afterRender, static #ensureCSS
  */
 
@@ -131,6 +132,13 @@ export class PhotoEditor {
    * не требует явного вызова .bind(this).
    */
   #onKeyDownBound = (e) => this.#onKeyDown(e);
+
+  /**
+   * blob: URL изображений, созданных редактором (commitCanvas, undo/redo).
+   * Отзываются в #releaseImage, когда изображение перестаёт быть текущим.
+   * Изображения из setImage() (data:/http:) сюда не попадают.
+   */
+  #ownedUrls = new WeakMap();
 
 
   // ── Публичные поля ─────────────────────────────────────────────────────────
@@ -506,6 +514,8 @@ export class PhotoEditor {
     this.container  = null;
     this.imgElement = null;
     this.dialogs    = null;
+    // Текущее изображение остаётся доступным после close() (pe.img), его URL
+    // отзовётся при следующем commit/setImage или останется до выгрузки страницы.
 
     if (this.afterClose) this.afterClose(this);
   }
@@ -587,11 +597,61 @@ export class PhotoEditor {
    * @param {HTMLImageElement} img
    */
   commitImage(img) {
-    this.img = img;
-    if (this.imgElement) { this.imgElement.src = img.src; this.#updateInfo(); }
+    this.#setCurrentImage(img);
     this.#isDirty    = true;
     this.#exportDone = false;
     this.#pushHistory();
+  }
+
+  /**
+   * Фиксирует результат инструмента из canvas — предпочтительный путь.
+   *
+   * canvas → PNG Blob (toBlob кодирует вне главного потока) → blob: URL →
+   * <img>. Тот же Blob без перекодирования уходит в историю. Раньше каждый
+   * инструмент делал toDataURL('image/png') синхронно на главном потоке
+   * (секунды для больших фото) и держал base64-строку в img.src (+33% памяти),
+   * а история кодировала картинку ещё раз.
+   *
+   * @param {HTMLCanvasElement|OffscreenCanvas} canvas
+   * @returns {Promise<HTMLImageElement>}
+   */
+  async commitCanvas(canvas) {
+    const blob = await canvasToBlob(canvas, 'image/png');
+    const { img, url } = await blobToImage(blob);
+    this.#ownedUrls.set(img, url);
+    this.#setCurrentImage(img);
+    this.#isDirty    = true;
+    this.#exportDone = false;
+    this.#history.push(blob).then(() => this.#updateHistoryUI());
+    return img;
+  }
+
+  /** Делает img текущим, обновляет <img> и отпускает предыдущее изображение. */
+  #setCurrentImage(img) {
+    const prev = this.img;
+    this.img = img;
+    if (this.imgElement) { this.imgElement.src = img.src; this.#updateInfo(); }
+    if (prev && prev !== img) this.#releaseImage(prev);
+  }
+
+  /**
+   * Отзывает blob: URL изображения, которым владеет редактор.
+   * Отложено до загрузки нового src в imgElement: Chrome повторно читает blob
+   * при присваивании src другому элементу, и ранний revoke давал ERR_FILE_NOT_FOUND.
+   */
+  #releaseImage(img) {
+    const url = this.#ownedUrls.get(img);
+    if (!url) return;
+    this.#ownedUrls.delete(img);
+    const revoke = () => URL.revokeObjectURL(url);
+    const el = this.imgElement;
+    if (el && !el.complete) {
+      const once = () => { el.removeEventListener('load', once); el.removeEventListener('error', once); revoke(); };
+      el.addEventListener('load', once);
+      el.addEventListener('error', once);
+    } else {
+      setTimeout(revoke, 0);
+    }
   }
 
   /**
@@ -1004,16 +1064,12 @@ export class PhotoEditor {
   /**
    * Делает снапшот текущего this.img в историю.
    *
-   * Откладывается через requestIdleCallback (или setTimeout как fallback) —
-   * это предотвращает конкуренцию с рендером сразу после apply() инструмента.
-   * Использует OffscreenCanvas где поддерживается — перенос drawImage вне
-   * main thread не блокирует UI при больших изображениях.
+   * Используется для изображений, пришедших НЕ из canvas (setImage, commitImage):
+   * снапшот рисуется на OffscreenCanvas и кодируется в HistoryManager.
+   * Инструменты фиксируют результат через commitCanvas(), где blob уже есть.
    *
-   * Порядок выполнения гарантирован:
-   *   setImage() → setTimeout(doCapture) → open() [microtask] → DOM рендер [rAF×2]
-   *   → инструмент стартует → пользователь взаимодействует
-   * setTimeout(0) всегда выполняется в следующей макро-задаче, поэтому снапшот
-   * исходника гарантированно попадёт в историю до запуска любого инструмента.
+   * Откладывается через requestIdleCallback (или setTimeout как fallback),
+   * чтобы не конкурировать с рендером сразу после загрузки.
    */
   #pushHistory() {
     if (!this.img) return;
@@ -1051,10 +1107,9 @@ export class PhotoEditor {
     if (!this.#history.canUndo) return;
     // Приостанавливаем активный инструмент — он мог держать canvas-оверлей
     this.activeTool?.suspend?.();
-    const img = await this.#history.undo();
-    if (img) {
-      this.img = img;
-      if (this.imgElement) { this.imgElement.src = img.src; this.#updateInfo(); }
+    const blob = await this.#history.undo();
+    if (blob && this.container) {
+      await this.#showSnapshot(blob);
       // Если откатились до самого начала истории — изображение вернулось к исходному.
       // Снимаем флаг «несохранённые изменения»: диалог при закрытии больше не нужен.
       if (!this.#history.canUndo) {
@@ -1067,14 +1122,24 @@ export class PhotoEditor {
   async #redo() {
     if (!this.#history.canRedo) return;
     this.activeTool?.suspend?.();
-    const img = await this.#history.redo();
-    if (img) {
-      this.img = img;
-      if (this.imgElement) { this.imgElement.src = img.src; this.#updateInfo(); }
+    const blob = await this.#history.redo();
+    if (blob && this.container) {
+      await this.#showSnapshot(blob);
       // Вернулись к изменённому состоянию — при закрытии снова нужен диалог
       this.#isDirty = true;
     }
     this.#updateHistoryUI();
+  }
+
+  /** Снапшот истории (Blob) → текущее изображение, без записи в историю. */
+  async #showSnapshot(blob) {
+    try {
+      const { img, url } = await blobToImage(blob);
+      this.#ownedUrls.set(img, url);
+      this.#setCurrentImage(img);
+    } catch (err) {
+      console.error('[PhotoEditor] не удалось показать состояние истории', err);
+    }
   }
 
   /** Синхронизирует состояние кнопок undo/redo и бейдж с глубиной истории. */
