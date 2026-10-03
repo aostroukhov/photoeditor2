@@ -451,10 +451,12 @@ export class CropTool {
     this.photoEditor.dialogs?.register('crop', panel, {
       group:   'tool',
       onClose: () => {
-        // Вызываем cancel() только при явном закрытии пользователем,
-        // не во время programmatic suspend() или destroy()
-        if ((this.isActive || this.isSuspended) && !this.#stopping && !this.#suspending) {
-          this.cancel();
+        // Панель закрыта извне (крестик, открытие Импорт/Экспорт, Escape) →
+        // suspend: рамка сохраняется в naturalCropArea и восстановится при
+        // следующем клике по инструменту. Programmatic close из suspend()/
+        // destroy() игнорируем. Отмена — только через Escape в самом инструменте.
+        if (this.isActive && !this.#stopping && !this.#suspending) {
+          this.suspend();
         }
       },
     });

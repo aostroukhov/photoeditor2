@@ -32,6 +32,7 @@
  */
 
 import { EditorConfig } from './EditorConfig.js';
+import { isEditableTarget } from './utils.js';
 
 const CFG = EditorConfig.draw;
 
@@ -706,6 +707,7 @@ export class DrawTool {
   }
 
   #onKeyDown(e) {
+    if (isEditableTarget(e)) return false;
     const isBracketL = e.code === 'BracketLeft';
     const isBracketR = e.code === 'BracketRight';
 
@@ -721,8 +723,14 @@ export class DrawTool {
     }
 
     if (!this.isActive) return false;
-    if (e.code === 'Escape' || e.key === 'Escape') { this.cancel(); return true; }
+    if (e.code === 'Escape' || e.key === 'Escape') {
+      // Гасим событие: иначе PhotoEditor увидит пустой набор диалогов
+      // (панель уже снята cancel()) и закроет редактор целиком.
+      e.preventDefault(); e.stopImmediatePropagation();
+      this.cancel(); return true;
+    }
     if ((e.key === 'Delete' || e.key === 'Backspace') && this.selected) {
+      e.preventDefault(); e.stopImmediatePropagation();
       this.#removeSketch(this.selected); return true;
     }
     return false;

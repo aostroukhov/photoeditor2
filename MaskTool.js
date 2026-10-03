@@ -8,6 +8,7 @@
  */
 
 import { EditorConfig } from './EditorConfig.js';
+import { isEditableTarget } from './utils.js';
 
 const CFG = EditorConfig.mask;
 const HR  = 8;
@@ -507,9 +508,13 @@ export class MaskTool {
   _onTouchEnd()  { this._endPointer(); }
   _onWinResize() { requestAnimationFrame(() => requestAnimationFrame(() => this._draw())); }
   _onKeyDown(e) {
-    if (!this.isActive) return false;
-    if (e.key === 'Escape') { this.cancel(); return true; }
+    if (!this.isActive || isEditableTarget(e)) return false;
+    if (e.key === 'Escape') {
+      e.preventDefault(); e.stopImmediatePropagation();
+      this.cancel(); return true;
+    }
     if ((e.key === 'Delete' || e.key === 'Backspace') && this.selected) {
+      e.preventDefault(); e.stopImmediatePropagation();
       this._removeRegion(this.selected); return true;
     }
     return false;
@@ -616,7 +621,7 @@ export class MaskTool {
     document.addEventListener('touchmove', this._onTouchMove, { passive: false });
     document.addEventListener('touchend',  this._onTouchEnd);
     window.addEventListener('resize',      this._onWinResize);
-    document.addEventListener('keydown',   this._onKeyDown);
+    document.addEventListener('keydown',   this._onKeyDown, { capture: true });
   }
 
   _unbindEvents() {
@@ -629,7 +634,7 @@ export class MaskTool {
     document.removeEventListener('touchmove', this._onTouchMove);
     document.removeEventListener('touchend',  this._onTouchEnd);
     window.removeEventListener('resize',      this._onWinResize);
-    document.removeEventListener('keydown',   this._onKeyDown);
+    document.removeEventListener('keydown',   this._onKeyDown, { capture: true });
   }
 
 

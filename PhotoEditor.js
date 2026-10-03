@@ -10,6 +10,7 @@ import { ImportPanel }    from './ImportPanel.js';
 import { DialogManager }  from './DialogManager.js';
 import { EditorConfig }   from './EditorConfig.js';
 import { HistoryManager } from './HistoryManager.js';
+import { isEditableTarget, escapeHtml } from './utils.js';
 
 /**
  * PhotoEditor v3.6
@@ -855,6 +856,16 @@ export class PhotoEditor {
   }
 
   #onKeyDown(e) {
+    // Инструмент с собственным capture-слушателем уже обработал клавишу
+    if (e.defaultPrevented) return;
+
+    // Клавиши внутри текстовых полей панелей принадлежат полю, а не редактору:
+    // Backspace не должен удалять оверлей, стрелки — двигать его, Escape — закрывать редактор.
+    if (isEditableTarget(e)) {
+      if (e.key === 'Escape') { e.preventDefault(); e.target.blur(); }
+      return;
+    }
+
     // Сначала предлагаем событие активному инструменту
     if (this.activeTool?.onKeyDown?.(e)) { e.preventDefault(); return; }
 
@@ -1059,6 +1070,8 @@ export class PhotoEditor {
     if (img) {
       this.img = img;
       if (this.imgElement) { this.imgElement.src = img.src; this.#updateInfo(); }
+      // Вернулись к изменённому состоянию — при закрытии снова нужен диалог
+      this.#isDirty = true;
     }
     this.#updateHistoryUI();
   }

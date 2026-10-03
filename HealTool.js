@@ -31,6 +31,7 @@
  */
 
 import { EditorConfig } from './EditorConfig.js';
+import { isEditableTarget } from './utils.js';
 
 const CFG    = EditorConfig.heal;
 const LS_KEY = CFG.storageKey;
@@ -779,6 +780,7 @@ export class HealTool {
   }
 
   _onKeyDown(e) {
+    if (isEditableTarget(e)) return false;
     // e.code — физическая позиция клавиши, не зависит от раскладки.
     // Перехватываем ДО проверки isActive, чтобы preventDefault успел
     // остановить браузерный обработчик Firefox (Quick Find).

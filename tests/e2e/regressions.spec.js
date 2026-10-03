@@ -29,7 +29,7 @@ test('K2: Backspace в поле текста оверлея не удаляет 
   await page.keyboard.press('ArrowLeft');
   await page.keyboard.press('Delete');
   expect(await page.evaluate(() => window.editor.tools.overlay.overlays.length)).toBe(1);
-  await expect(input).toHaveValue('Приве');
+  await expect(input).toHaveValue('Прив');
 });
 
 test('K2: Escape из поля текста оверлея не сбрасывает оверлеи', async ({ page }) => {
