@@ -13,7 +13,7 @@
 import { EditorConfig }  from './EditorConfig.js';
 import { ToolBase }      from './ToolBase.js';
 import { imageToCanvas } from './canvasUtils.js';
-import { escapeHtml }    from './utils.js';
+import { CardList }      from './CardList.js';
 
 const CFG = EditorConfig.mask;
 const HR  = 8;      // радиус ручки
@@ -111,6 +111,7 @@ export class MaskTool extends ToolBase {
 
   _srcCanvas = null;   // кэш натуральных пикселей текущего pe.img
   _srcImg    = null;
+  _cards     = null;   // CardList
 
   constructor(photoEditor) {
     super(photoEditor, { id: 'mask', cursor: 'crosshair' });
@@ -269,7 +270,7 @@ export class MaskTool extends ToolBase {
     const hit = this._hitTest(x, y);
     if (hit) {
       const { type, region } = hit;
-      if (this.selected !== region) this._selectRegion(region, false);
+      if (this.selected !== region) this._selectRegion(region);
       this._setCursor(this._cursorFor(hit));
       if (type === 'move') {
         this._drag = { startX: x, startY: y, origX: region.x, origY: region.y };
@@ -367,11 +368,10 @@ export class MaskTool extends ToolBase {
     this.requestDraw();
   }
 
-  _selectRegion(region, scroll = true) {
+  _selectRegion(region) {
     if (this.selected === region) return;
     this.selected = region;
     this._syncPanel(); this._updateRegionListActive();
-    if (scroll) this._scrollRegionListToSelected();
     this.requestDraw();
   }
 
@@ -380,6 +380,7 @@ export class MaskTool extends ToolBase {
     this._drawing = false; this._drawRect = null; this._drawStart = null;
     this._drag = null; this._resize = null;
     this._srcCanvas = null; this._srcImg = null;
+    this._cards = null;
   }
 
 
@@ -404,7 +405,7 @@ export class MaskTool extends ToolBase {
       </div>
       <div class="mask-panel__regions-wrap" style="display:none">
         <div class="mask-panel__regions-label">Области</div>
-        <div class="mask-panel__regions-list" role="listbox" aria-label="Области пикселизации"></div>
+        <div class="mask-panel__regions-list"></div>
       </div>
       <div class="mask-panel__hint">
         Нарисуйте прямоугольник на изображении · угловые ручки меняют размер
@@ -420,23 +421,16 @@ export class MaskTool extends ToolBase {
       if (this.selected) this._removeRegion(this.selected);
     });
 
-    // Делегированные обработчики списка — один раз
-    const list = panel.querySelector('.mask-panel__regions-list');
-    list.addEventListener('click', (e) => {
-      const card = e.target.closest('.draw-sketch-card');
-      if (!card) return;
-      const region = this.regions.find(r => r.id === Number(card.dataset.rgId));
-      if (!region) return;
-      if (e.target.closest('.draw-sketch-card__del')) this._removeRegion(region);
-      else this._selectRegion(region);
-    });
-    list.addEventListener('keydown', (e) => {
-      const card = e.target.closest('.draw-sketch-card');
-      if (!card) return;
-      const region = this.regions.find(r => r.id === Number(card.dataset.rgId));
-      if (!region) return;
-      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); this._selectRegion(region); }
-      if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); this._removeRegion(region); }
+    this._cards = new CardList(panel.querySelector('.mask-panel__regions-list'), {
+      getId:    (r) => r.id,
+      render:   (r) => {
+        let thumbSrc = '';
+        try { if (this._srcCanvas) thumbSrc = regionThumb(this._srcCanvas, r, this.naturalScale); } catch { /* tainted */ }
+        return { thumbSrc, color: CFG.selectionColor, title: `Область #${r.id} · блок ${r.blockSize}px` };
+      },
+      onSelect: (r) => this._selectRegion(r),
+      onDelete: (r) => this._removeRegion(r),
+      ariaLabel: 'Области пикселизации',
     });
     return panel;
   }
@@ -453,53 +447,12 @@ export class MaskTool extends ToolBase {
   }
 
   _renderRegionList() {
-    if (!this._panel) return;
+    if (!this._panel || !this._cards) return;
     const wrap = this._panel.querySelector('.mask-panel__regions-wrap');
-    const list = this._panel.querySelector('.mask-panel__regions-list');
-    if (!list) return;
-    if (this.regions.length === 0) { wrap.style.display = 'none'; list.innerHTML = ''; return; }
+    if (!this.regions.length) { wrap.style.display = 'none'; this._cards.clear(); return; }
     wrap.style.display = '';
-    list.innerHTML = '';
-    const k = this.naturalScale;
-    for (let i = this.regions.length - 1; i >= 0; i--) {
-      const region   = this.regions[i];
-      const isActive = region === this.selected;
-      const card = document.createElement('div');
-      card.className    = 'draw-sketch-card' + (isActive ? ' is-active' : '');
-      card.title        = `Область #${region.id} · блок ${region.blockSize}px`;
-      card.dataset.rgId = region.id;
-      card.setAttribute('role', 'option');
-      card.setAttribute('aria-selected', String(isActive));
-      card.tabIndex = 0;
-      let thumbSrc = '';
-      try { if (this._srcCanvas) thumbSrc = regionThumb(this._srcCanvas, region, k); } catch { /* tainted */ }
-      card.innerHTML = `
-        <button type="button" class="draw-sketch-card__del" title="Удалить" aria-label="Удалить область" tabindex="-1">
-          <i class="icon-close" aria-hidden="true"></i>
-        </button>
-        ${thumbSrc
-          ? `<img class="draw-sketch-card__thumb" src="${escapeHtml(thumbSrc)}" alt="" draggable="false">`
-          : `<div class="draw-sketch-card__thumb draw-sketch-card__thumb--empty"></div>`}
-        <div class="draw-sketch-card__color" style="background:${CFG.selectionColor}"></div>`;
-      list.appendChild(card);
-    }
-    this._scrollRegionListToSelected();
+    this._cards.render(this.regions, this.selected);
   }
 
-  _updateRegionListActive() {
-    if (!this._panel) return;
-    this._panel.querySelectorAll('.draw-sketch-card').forEach(card => {
-      const active = this.regions.find(r => r.id === Number(card.dataset.rgId)) === this.selected;
-      card.classList.toggle('is-active', active);
-      card.setAttribute('aria-selected', String(active));
-    });
-  }
-
-  _scrollRegionListToSelected() {
-    if (!this._panel || !this.selected) return;
-    const list = this._panel.querySelector('.mask-panel__regions-list');
-    const card = list?.querySelector(`.draw-sketch-card[data-rg-id="${this.selected.id}"]`);
-    if (!card) return;
-    list.scrollTo({ left: Math.max(0, card.offsetLeft - (list.clientWidth - card.offsetWidth) / 2), behavior: 'smooth' });
-  }
+  _updateRegionListActive() { this._cards?.setActive(this.selected); }
 }
