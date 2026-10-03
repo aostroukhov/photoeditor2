@@ -148,3 +148,47 @@ test('setImageBlob: импорт без base64, blob: URL и запись в и�
   await expect(page.locator('.photoeditor__info')).toHaveText('320×200');
   await expect(page.locator('[data-action="undo"]')).toBeEnabled();
 });
+
+test('CMS-flow: setImage(url) до open(), async export при «Сохранить» — редактор ждёт Promise', async ({ page }) => {
+  await openEditor(page);
+  // Как photoEditContent.js: export возвращает Promise сохранения на сервер
+  await page.evaluate(() => {
+    window.exportLog = [];
+    window.editor.export = (canvas) => new Promise((resolve) => {
+      window.exportLog.push('start:' + canvas.width + 'x' + canvas.height);
+      setTimeout(() => { window.exportLog.push('done'); window.editor.notifyExportDone(); resolve(); }, 300);
+    });
+  });
+  await expect(page.locator('[data-action="undo"]')).toBeDisabled();   // baseline один, глубина 0
+
+  const before = await imgSrc(page);
+  await startTool(page, 'draw');
+  await dragOnCanvas(page, [0.2, 0.2], [0.6, 0.6]);
+  await panelBtn(page, 'draw', 'apply').click();
+  await waitForImageChange(page, before);
+
+  await page.click('[data-action="close"]');
+  const dlg = page.locator('.pe-close-confirm');
+  await expect(dlg).toBeVisible();
+  await expect(dlg.locator('.pe-close-confirm__btn--primary')).toHaveText(/Сохранить/);
+  await dlg.locator('.pe-close-confirm__btn--primary').click();
+  // Пока Promise не выполнен — редактор открыт
+  await expect(page.locator('.photoeditor__container')).toBeVisible();
+  await page.waitForFunction(() => window.editorClosed === true);
+  expect(await page.evaluate(() => window.exportLog)).toEqual(['start:800x600', 'done']);
+});
+
+test('CMS-flow: ошибка async export оставляет редактор открытым', async ({ page }) => {
+  await openEditor(page);
+  await page.evaluate(() => { window.editor.export = () => Promise.reject(new Error('HTTP 500')); });
+  const before = await imgSrc(page);
+  await startTool(page, 'mask');
+  await dragOnCanvas(page, [0.2, 0.2], [0.5, 0.5]);
+  await panelBtn(page, 'mask', 'apply').click();
+  await waitForImageChange(page, before);
+  await page.click('[data-action="close"]');
+  await page.locator('.pe-close-confirm__btn--primary').click();
+  await page.waitForTimeout(300);
+  await expect(page.locator('.photoeditor__container')).toBeVisible();
+  expect(await page.evaluate(() => window.editorClosed)).toBeUndefined();
+});

@@ -348,7 +348,7 @@ export class PhotoEditor {
             if (mimeType !== null) this.originalMimeType = mimeType;
             if (fileSize !== null) this.originalFileSize = fileSize;
             if (this.imgElement) { this.imgElement.src = img2.src; this.#updateInfo(); }
-            this.#pushHistory();
+            if (this.container) this.#pushHistory();   // до open() baseline положит сам open()
             resolve(img2);
           };
           img2.onerror = reject;
@@ -359,7 +359,7 @@ export class PhotoEditor {
           if (mimeType !== null) this.originalMimeType = mimeType;
           if (fileSize !== null) this.originalFileSize = fileSize;
           if (this.imgElement) { this.imgElement.src = img.src; this.#updateInfo(); }
-          this.#pushHistory();
+          if (this.container) this.#pushHistory();    // до open() baseline положит сам open()
           resolve(img);
         }
       };
@@ -385,8 +385,11 @@ export class PhotoEditor {
     this.originalFileName = fileName ?? this.originalFileName;
     this.originalMimeType = mimeType ?? blob.type ?? this.originalMimeType;
     this.originalFileSize = fileSize ?? blob.size;
-    if (blob.type === 'image/png') this.#history.push(blob).then(() => this.#updateHistoryUI());
-    else this.#pushHistory();
+    // До open() снапшот не нужен — baseline положит сам open() (иначе кодируем PNG впустую)
+    if (this.container) {
+      if (blob.type === 'image/png') this.#history.push(blob).then(() => this.#updateHistoryUI());
+      else this.#pushHistory();
+    }
     return img;
   }
 
@@ -637,7 +640,7 @@ export class PhotoEditor {
     this.#setCurrentImage(img);
     this.#isDirty    = true;
     this.#exportDone = false;
-    this.#pushHistory();
+    if (this.container) this.#pushHistory();
   }
 
   /**
