@@ -19,7 +19,11 @@ photoeditor/
 ├── EditorConfig.js       Централизованная конфигурация и реестр инструментов
 ├── HistoryManager.js     Undo/redo на IndexedDB (WebP-снапшоты)
 ├── DialogManager.js      Панели инструментов и утилит: группы, позиционирование
-├── utils.js              Общие хелперы (isEditableTarget, escapeHtml, safeCssColor)
+├── ToolBase.js           Базовый класс инструмента: lifecycle, canvas (DPR), Pointer Events, панель
+├── CardList.js           Список карточек (наброски, области) с клавиатурой и a11y
+├── canvasUtils.js        canvasToBlob, blobToImage, waitForImage, clientToLogical…
+├── utils.js              isEditableTarget, escapeHtml, safeCssColor
+├── healAlgorithm.js      Алгоритм восстанавливающей кисти (чистые функции)
 │
 ├── HealTool.js           Ретушь — восстанавливающая кисть
 ├── CropTool.js           Кадрирование с поворотом рамки и изображения
@@ -230,7 +234,8 @@ editor.setImage(src)        // загрузить изображение (string
 editor.open()               // открыть редактор
 editor.requestClose()       // закрыть с диалогом, если есть несохранённые изменения
 editor.close()              // закрыть немедленно (системные сценарии)
-editor.commitImage(img)     // зафиксировать новое изображение (история, dirty-флаг)
+editor.commitCanvas(canvas) // зафиксировать результат из canvas (PNG blob → история, dirty-флаг)
+editor.commitImage(img)     // то же из готового HTMLImageElement
 editor.notifyExportDone()   // сообщить, что пользователь экспортировал результат
 editor.syncToolButtons()    // обновить is-active на кнопках тулбара
 
@@ -441,72 +446,68 @@ npm run test:e2e                  # Playwright (Chromium)
 
 ### Концепция
 
-Каждый инструмент — **обычный ES-модуль** с фиксированным контрактом.
-Редактор не знает о конкретных инструментах ничего, кроме имён методов.
-Плагин получает ссылку на `PhotoEditor` и может использовать весь его публичный API.
+Каждый инструмент — ES-модуль, наследующий **`ToolBase`**. Базовый класс берёт на себя
+жизненный цикл, overlay-canvas (с учётом devicePixelRatio), указатель (Pointer Events,
+коалесинг в кадр), наблюдение за размером изображения, панель и клавиатуру.
+Инструмент реализует только хуки. Результат фиксируется исключительно через
+`pe.commitCanvas(canvas)` — базовый класс делает это сам из `onApply()`.
 
-Регистрация в `PhotoEditor.js` сводится к **3 строкам** — импорт, запись в `TOOL_REGISTRY`,
-создание экземпляра в `_allTools`. Кнопка на тулбаре и маршрутизация кликов —
-автоматически.
+Регистрация в редакторе — **3 строки**: импорт, запись в `EditorConfig.tools`,
+экземпляр в `#allTools`. Кнопка на тулбаре и маршрутизация кликов — автоматически.
 
 ---
 
-### Контракт плагина
+### Контракт плагина (ToolBase)
 
 ```js
-export class MyTool {
-  // ── Флаги состояния (обязательны — читаются редактором) ──────────────────
-  isActive    = false;   // инструмент сейчас активен
-  isSuspended = false;   // инструмент приостановлен (открыта другая панель)
+import { ToolBase } from './ToolBase.js';
 
-  constructor(photoEditor) {
-    this.pe = photoEditor; // ссылка на редактор
+export class MyTool extends ToolBase {
+  constructor(pe) {
+    super(pe, {
+      id: 'myTool',         // ключ в EditorConfig.tools и DialogManager (обязателен)
+      useCanvas: true,      // overlay-canvas поверх изображения
+      canvasPointer: true,  // canvas принимает указатель
+      hidpi: true,          // backing store × devicePixelRatio
+      cursor: 'crosshair',
+    });
   }
 
-  // ── Обязательные методы ──────────────────────────────────────────────────
+  // ── Жизненный цикл (все необязательны) ───────────────────────────────────
+  onStart()   {}                 // активирован; this.viewW / this.viewH — логический размер
+  onResume()  { this.onStart(); } // возврат из фона
+  onSuspend() {}                 // ушёл в фон (другой инструмент, панель Импорт/Экспорт)
+  onCancel()  {}                 // Escape / «Отмена»
+  onDestroy() {}                 // закрытие редактора
+  onApply()   { return null; }   // canvas | Promise<canvas> | null — результат в натуральном разрешении
 
-  /** Вызывается при нажатии кнопки инструмента. */
-  start() {
-    this.isActive = true;
-    this.pe.activeTool = this;
-    this.pe.syncToolButtons?.();
-    // Монтируем canvas, панель и т.д.
+  // ── Отрисовка и ввод ─────────────────────────────────────────────────────
+  onViewResize(kx, ky) {}        // изображение изменило размер — отмасштабировать состояние
+  onDraw(ctx) {}                 // ctx уже в логических координатах; вызывайте this.requestDraw()
+  onPointerDown(pt, e) {}        // pt = { x, y } в логических координатах
+  onPointerMove(pt, e) {}        // только при зажатом указателе, ≤ 1 раз на кадр
+  onPointerUp(pt, e)   {}
+  onPointerCancel(e)   {}
+  onHover(pt, e)       {}        // движение без нажатия
+  onHoverEnd(e)        {}
+  onKey(e) { return false; }     // горячие клавиши (Escape уже обработан базой)
+
+  // ── Панель ───────────────────────────────────────────────────────────────
+  buildPanel() {
+    const panel = document.createElement('div');
+    panel.innerHTML = `
+      ${ToolBase.panelHeader({ title: 'Мой инструмент', prefix: 'my-panel' })}
+      <div class="pe-panel__row">…</div>`;
+    return panel;                 // база добавит классы pe-panel, зарегистрирует и откроет
   }
-
-  /** Отмена без записи результата (Escape, кнопка «Отмена»). */
-  cancel() {
-    // Демонтируем canvas, панель; this.pe.activeTool = null; syncToolButtons()
-  }
-
-  /** Cleanup при закрытии редактора (вызывается всегда, даже если не активен). */
-  destroy() {
-    this.cancel();
-  }
-
-  // ── Необязательные методы ────────────────────────────────────────────────
-
-  /** Кнопка «Применить». Результат фиксируется ТОЛЬКО через this.pe.commitImage(img). */
-  apply() {}
-
-  /**
-   * Обработка клавиш пока инструмент активен. Редактор сам пропускает события
-   * из текстовых полей и уже обработанные (e.defaultPrevented).
-   * @returns {boolean} true = событие перехвачено (preventDefault вызовет редактор)
-   */
-  onKeyDown(e) { return false; }
-
-  /** Повторный клик по уже активной кнопке → показать/скрыть настройки. */
-  openSettings() {}
-
-  /** Инструмент уходит в фон (открылась панель импорт/экспорт, выбран другой инструмент). */
-  suspend() {
-    this.isSuspended = true;
-    this.isActive    = false;
-    this.pe.syncToolButtons?.();
-  }
-  // Возврат из фона — повторный start(): редактор вызывает его, если isSuspended === true.
+  onPanelReady(panel) {}
 }
 ```
+
+Полезные свойства базы: `this.pe` (редактор), `this.viewW / viewH`, `this.naturalScale`
+(логические px → натуральные), `this.overlayCanvas / overlayCtx`, `this._panel`.
+Публичные методы, которые вызывает редактор: `start()`, `suspend()`, `cancel()`,
+`apply()`, `destroy()`, `openSettings()`, `onKeyDown(e)`.
 
 ---
 
@@ -522,8 +523,8 @@ tools: {
   myTool:  { id:'myTool',  label:'Мой',     icon:'icon-pencil',  ready:true  }, // ← добавить
 },
 
-// 3. В конструкторе PhotoEditor, в _allTools:
-this._allTools = {
+// 3. В конструкторе PhotoEditor, в #allTools:
+this.#allTools = {
   crop:    new CropTool(this),
   overlay: new OverlayTool(this, ...),
   myTool:  new MyTool(this),   // ← добавить; кнопка появится автоматически
@@ -539,8 +540,9 @@ new PhotoEditor({ tools: ['crop', 'overlay', 'myTool'] });
 
 ### Пример плагина
 
-Самый компактный реальный пример контракта — `AdjustTool.js` (~550 строк):
-панель со слайдерами, превью на canvas, `apply()` через `commitImage`, полный lifecycle.
+Самый компактный реальный пример — `AdjustTool.js` (~390 строк, canvas без указателя,
+панель со слайдерами, превью в `onDraw`, результат из `onApply`). Пример с указателем
+и списком карточек — `MaskTool.js`.
 
 ### SCSS для плагинов (_plugins.scss)
 
@@ -580,8 +582,8 @@ new PhotoEditor({ tools: ['crop', 'overlay', 'myTool'] });
 
 1. ✅ Инфраструктура: npm, ESLint, Vitest, Playwright, CI
 2. ✅ Исправления дефектов, теряющих данные пользователя
-3. Базовый класс инструмента (`ToolBase`) и общие утилиты canvas/pointer — убрать 6 копий lifecycle
-4. Модель изображения на `ImageBitmap`/blob вместо PNG dataURL; Worker для Heal/Adjust
+3. ✅ `ToolBase` и общие утилиты — все шесть инструментов на одном базовом классе
+4. ✅ Модель изображения на blob вместо PNG dataURL, история без потерь; ◻ Worker для Heal/Adjust
 5. Разделение конфига библиотеки и проекта, i18n, доступность, единые префиксы SCSS
 
 ## Совместимость
@@ -592,6 +594,8 @@ new PhotoEditor({ tools: ['crop', 'overlay', 'myTool'] });
 | Firefox | 90+ |
 | Safari | 15+ |
 | iOS Safari | 15.4+ |
+
+Используются Pointer Events, ResizeObserver, ES2022 private fields, `canvas.toBlob`, IndexedDB.
 
 Clipboard API (импорт/экспорт через буфер) — только HTTPS или `localhost`.
 
