@@ -1,6 +1,6 @@
 {
   "name": "photoeditor",
-  "version": "3.6.0",
+  "version": "3.7.0",
   "description": "Модульный фоторедактор на vanilla JS (ES Modules) без runtime-зависимостей",
   "type": "module",
   "private": true,

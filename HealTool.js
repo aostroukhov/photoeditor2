@@ -84,17 +84,17 @@ export class HealTool extends ToolBase {
   onResume() {
     this._painting = false; this._lastPoint = null;
     this._ensureAuxCanvases();
-    if (this._hasPreview) {
-      // Изображение сменилось (undo/другой инструмент) — старое превью неактуально
-      if (this._previewImg !== this.pe.img) { this._clearPreview(); if (this._strokes.length) this._schedulePreview(); }
-      else this._previewCanvas.style.display = '';
-    }
+    // Превью освобождено в suspend — пересчитываем, если были мазки
+    this._hasPreview = false;
+    if (this._strokes.length) this._schedulePreview();
   }
 
   onSuspend() {
     this._cancelPreviewTimer();
     this._painting = false; this._lastPoint = null; this._cursor.visible = false;
-    if (this._previewCanvas) this._previewCanvas.style.display = 'none';
+    // Preview-canvas освобождаем (пересчитается при resume), маску мазков оставляем
+    this._previewCanvas?.remove();
+    this._previewCanvas = null; this._previewCtx = null;
   }
 
   onCancel()  { this._reset(); }

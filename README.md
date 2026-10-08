@@ -1,4 +1,4 @@
-# PhotoEditor v3.6
+# PhotoEditor v3.7
 
 Модульный фоторедактор — Mobile First, vanilla JS (ES Modules), без runtime-зависимостей.
 Работает как виджет внутри страницы **и** как самостоятельное приложение (`index.html`).
@@ -60,6 +60,21 @@ npm run check        # всё вместе
 ```
 
 Файлы подключаются без сборки — достаточно скопировать `*.js` и `layout.css` на сервер.
+
+## Развёртывание
+
+Набор файлов релиза (все в одной папке, например `/jscript/photoeditor2/`):
+
+```
+PhotoEditor.js  EditorConfig.js  HistoryManager.js  DialogManager.js  ToolBase.js  CardList.js
+canvasUtils.js  utils.js  pixelOps.js  pixelWorker.js  healAlgorithm.js  adjustAlgorithm.js
+HealTool.js  CropTool.js  OverlayTool.js  DrawTool.js  MaskTool.js  AdjustTool.js
+ExportPanel.js  ImportPanel.js  FileInput.js  layout.css
+```
+
+- `pixelWorker.js` загружается как module-Worker относительно `PhotoEditor.js`; при Content-Security-Policy нужны `worker-src 'self'` и `img-src blob: data:`. Без Worker редактор работает на главном потоке.
+- `pe.img.src` — `blob:` URL (не `data:`); сам `pe.img` остаётся `HTMLImageElement`.
+- Проверка после выкладки: открыть редактор, применить каждый инструмент, undo/redo, «Сохранить на сайте», закрытие с диалогом.
 
 ---
 

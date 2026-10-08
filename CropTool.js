@@ -64,7 +64,8 @@ export class CropTool extends ToolBase {
   _resizeAnchor     = null;    // мировые координаты якоря
   _rotating         = false;
   _rotateStartAngle = 0;
-  _rotatingImage    = false;   // идёт поворот изображения на 90°
+  _rotatingImage    = false;   // идёт поворот изображения (commitCanvas)
+  _pendingRotation  = 0;       // накопленный угол кликов, пришедших во время поворота
 
   constructor(photoEditor) {
     super(photoEditor, { id: 'crop' });
@@ -115,7 +116,7 @@ export class CropTool extends ToolBase {
     this._resetInteraction();
   }
 
-  onCancel()  { this.cropRotation = 0; this.cropArea = null; this._resetInteraction(); }
+  onCancel()  { this.cropRotation = 0; this.cropArea = null; this._pendingRotation = 0; this._resetInteraction(); }
   onDestroy() { this.cropRotation = 0; this.cropArea = null; this.naturalCropArea = null; this._resetInteraction(); }
 
   onApply() {
@@ -452,16 +453,31 @@ export class CropTool extends ToolBase {
 
   // ─── Поворот изображения ──────────────────────────────────────────────────
 
-  /** Поворачивает всё изображение на ±90° и фиксирует через commitCanvas. */
+  /**
+   * Поворачивает всё изображение на deg° (кратно 90). Клики, пришедшие пока
+   * предыдущий поворот кодируется, накапливаются и применяются одним поворотом
+   * после его завершения: два быстрых клика дают 180°, а не 90°.
+   */
   _rotateImage(deg) {
+    this._pendingRotation = (this._pendingRotation + deg) % 360;
+    if (this._rotatingImage) return;
+    this._runPendingRotation();
+  }
+
+  _runPendingRotation() {
     const src = this.pe.img;
-    if (!src || this._rotatingImage) return;   // повторный клик до завершения дал бы 90° вместо 180°
+    const deg = ((this._pendingRotation % 360) + 360) % 360;
+    this._pendingRotation = 0;
+    if (!src || deg === 0 || !this.isActive) return;
+
     this._rotatingImage = true;
     const sw = src.naturalWidth, sh = src.naturalHeight;
+    const swap = deg === 90 || deg === 270;
     const canvas = document.createElement('canvas');
-    canvas.width = sh; canvas.height = sw;
+    canvas.width  = swap ? sh : sw;
+    canvas.height = swap ? sw : sh;
     const ctx = canvas.getContext('2d');
-    ctx.translate(sh / 2, sw / 2);
+    ctx.translate(canvas.width / 2, canvas.height / 2);
     ctx.rotate(deg * Math.PI / 180);
     ctx.drawImage(src, -sw / 2, -sh / 2);
 
@@ -470,8 +486,12 @@ export class CropTool extends ToolBase {
     this.cropArea        = null;
     this.cropRotation    = 0;
     this.pe.commitCanvas(canvas)
-      .then(() => { this._rotatingImage = false; this.requestDraw(); })
-      .catch(err => { this._rotatingImage = false; console.error('[CropTool] rotate:', err); });
+      .catch(err => console.error('[CropTool] rotate:', err))
+      .then(() => {
+        this._rotatingImage = false;
+        this.requestDraw();
+        if (this._pendingRotation !== 0) this._runPendingRotation();
+      });
   }
 
 

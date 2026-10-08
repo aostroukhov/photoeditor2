@@ -242,3 +242,56 @@ test('busy: Escape и requestClose во время apply не закрывают
   await expect(page.locator('.photoeditor__container')).toBeVisible();
   expect(await page.evaluate(() => window.editorClosed)).toBeUndefined();
 });
+
+test('#4: приостановленные инструменты не держат canvas; состояние масштабируется после ресайза в фоне', async ({ page }) => {
+  await openEditor(page);
+  for (const t of ['heal', 'crop', 'overlay', 'draw', 'mask', 'adjust']) await startTool(page, t);
+  expect(await page.locator('.photoeditor__img-container canvas').count()).toBe(1);   // только активный adjust
+  await startTool(page, 'crop');
+  const a0 = await page.evaluate(() => { const t = window.editor.tools.crop; return { ...t.cropArea, vw: t.viewW }; });
+  await startTool(page, 'draw');                                   // crop → suspend (canvas удалён)
+  await page.setViewportSize({ width: 800, height: 700 });
+  await page.waitForTimeout(300);
+  await startTool(page, 'crop');
+  const a1 = await page.evaluate(() => { const t = window.editor.tools.crop; return { ...t.cropArea, vw: t.viewW }; });
+  expect(a1.vw).toBeLessThan(a0.vw);
+  expect(Math.abs(a1.x / a1.vw - a0.x / a0.vw)).toBeLessThan(0.02);            // рамка в тех же долях
+  expect(Math.abs(a1.width / a1.vw - a0.width / a0.vw)).toBeLessThan(0.02);
+});
+
+test('#5: два быстрых клика «Повернуть» дают 180°', async ({ page }) => {
+  await openEditor(page);
+  await startTool(page, 'crop');
+  await page.click('[data-action="rotate-cw"]');
+  await page.click('[data-action="rotate-cw"]');
+  await page.waitForFunction(() => {
+    const t = window.editor.tools.crop;
+    return !t._rotatingImage && t._pendingRotation === 0 && window.editor.img.naturalWidth === 800;
+  });
+  await page.waitForTimeout(200);
+  expect(await page.evaluate(() => [window.editor.img.naturalWidth, window.editor.img.naturalHeight])).toEqual([800, 600]);
+  // 180°: синий прямоугольник (100..400, 100..300) теперь в правом нижнем углу
+  const px = await page.evaluate(() => { const img = window.editor.img; const cv = document.createElement('canvas'); cv.width = 800; cv.height = 600; const c = cv.getContext('2d'); c.drawImage(img, 0, 0); return Array.from(c.getImageData(600, 450, 1, 1).data.slice(0, 3)); });
+  expect(px).toEqual([60, 143, 224]);
+});
+
+test('#6: рамка текстового оверлея следует за текстом и размером шрифта', async ({ page }) => {
+  await openEditor(page);
+  await startTool(page, 'overlay');
+  await page.locator('.overlay-panel__btn-add-text').click();
+  const m0 = await page.evaluate(() => {
+    const ov = window.editor.tools.overlay.selected;
+    const ctx = document.createElement('canvas').getContext('2d'); ctx.font = ov.font;
+    return { w: ov.width, h: ov.height, tw: ctx.measureText(ov.text).width, fs: ov.fontSize };
+  });
+  expect(m0.w).toBeGreaterThan(m0.tw);
+  expect(m0.w).toBeLessThan(m0.tw + 40);
+  expect(m0.h).toBeLessThan(m0.fs * 1.8);
+  await page.locator('.overlay-panel__text-input').fill('Очень длинный текст оверлея');
+  const m1 = await page.evaluate(() => window.editor.tools.overlay.selected.width);
+  expect(m1).toBeGreaterThan(m0.w * 2);
+  await page.evaluate(() => { const el = document.querySelector('.overlay-panel__font-size'); el.value = '96'; el.dispatchEvent(new Event('input', { bubbles: true })); });
+  const m2 = await page.evaluate(() => { const ov = window.editor.tools.overlay.selected; return { w: ov.width, h: ov.height }; });
+  expect(m2.w).toBeGreaterThan(m1 * 1.5);
+  expect(m2.h).toBeGreaterThan(m0.h * 1.5);
+});

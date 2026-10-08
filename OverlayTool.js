@@ -142,6 +142,33 @@ export class ImageOverlay extends Overlay {
   toJSON() { return { ...super.toJSON(), srcDataUrl: this.srcDataUrl }; }
 }
 
+/** Общий контекст для measureText (размер рамки текстового оверлея). */
+let measureCtx = null;
+function getMeasureCtx() {
+  if (!measureCtx) measureCtx = document.createElement('canvas').getContext('2d');
+  return measureCtx;
+}
+
+/**
+ * Подгоняет рамку текстового оверлея под глифы (с учётом обводки), сохраняя центр.
+ * Рамка нужна для hit-test, ручек и ручки вращения — раньше она задавалась как
+ * доля холста и не зависела от текста, так что текст выходил за ручки.
+ */
+export function fitTextBox(ov) {
+  const ctx = getMeasureCtx();
+  if (!ctx) return;
+  const cx = ov.cx, cy = ov.cy;
+  ctx.font = ov.font;
+  const m   = ctx.measureText(ov.text || ' ');
+  const pad = Math.max(2, ov.fontSize * 0.08);
+  const asc = m.actualBoundingBoxAscent, desc = m.actualBoundingBoxDescent;
+  const glyphH = (Number.isFinite(asc) && Number.isFinite(desc) && asc + desc > 0) ? asc + desc : ov.fontSize * 1.15;
+  ov.width  = Math.max(MIN_SIZE, m.width + 2 * ov.strokeWidth + 2 * pad);
+  ov.height = Math.max(MIN_SIZE, glyphH  + 2 * ov.strokeWidth + 2 * pad);
+  ov.x = cx - ov.width / 2;
+  ov.y = cy - ov.height / 2;
+}
+
 /** Загружает картинку оверлея (data: — без CORS, внешний URL — с crossOrigin). */
 function loadOverlayImage(src) {
   return new Promise((resolve, reject) => {
@@ -200,7 +227,7 @@ export class OverlayTool extends ToolBase {
     for (const ov of this.overlays) {
       ov.x *= kx; ov.y *= ky; ov.width *= kx; ov.height *= ky;
       // Глифы задаются fontSize, а не рамкой — масштабируем и их
-      if (ov instanceof TextOverlay) { ov.fontSize = Math.max(1, ov.fontSize * ky); ov.strokeWidth *= ky; }
+      if (ov instanceof TextOverlay) { ov.fontSize = Math.max(1, ov.fontSize * ky); ov.strokeWidth *= ky; fitTextBox(ov); }
     }
   }
 
@@ -251,6 +278,7 @@ export class OverlayTool extends ToolBase {
       strokeWidth: num(saved.strokeWidth, 2),
       ...opts,
     });
+    fitTextBox(ov);
     this._addOverlay(ov);
     return ov;
   }
@@ -403,11 +431,17 @@ export class OverlayTool extends ToolBase {
       const dx = dlx - sx * r.origW / 2, dy = dly - sy * r.origH / 2;
       const newW = Math.max(MIN_SIZE, r.origW + sx * dx * 2);
       const newH = ov.lockAspect ? newW / r.aspectRatio : Math.max(MIN_SIZE, r.origH + sy * dy * 2);
-      ov.width = newW; ov.height = newH;
-      ov.x = r.origX + (r.origW - newW) / 2;
-      ov.y = r.origY + (r.origH - newH) / 2;
-      // Для текста растягивание рамки меняет размер шрифта пропорционально высоте
-      if (ov instanceof TextOverlay && r.origFontSize) ov.fontSize = Math.max(1, Math.round(r.origFontSize * newH / r.origH));
+      if (ov instanceof TextOverlay && r.origFontSize) {
+        // Текст: растягивание меняет размер шрифта (по большему из коэффициентов),
+        // рамка всегда следует за глифами; центр остаётся на месте
+        const k = Math.max(newW / r.origW, newH / r.origH);
+        ov.fontSize = Math.max(6, Math.round(r.origFontSize * k));
+        fitTextBox(ov);
+      } else {
+        ov.width = newW; ov.height = newH;
+        ov.x = r.origX + (r.origW - newW) / 2;
+        ov.y = r.origY + (r.origH - newH) / 2;
+      }
     }
     this._syncPanel();
     this.requestDraw();
@@ -472,10 +506,12 @@ export class OverlayTool extends ToolBase {
             const m = String(d.font).match(/^(\w+)\s+(\d+)px\s+(.+)$/);
             if (m) { d.fontWeight = m[1]; d.fontSize = Number(m[2]); d.fontFamily = m[3]; }
           }
-          this.overlays.push(new TextOverlay({
+          const tov = new TextOverlay({
             ...d, color: safeCssColor(d.color), strokeColor: safeCssColor(d.strokeColor, '#000000'),
             fontSize: num(d.fontSize, 48), strokeWidth: num(d.strokeWidth, 2),
-          }));
+          });
+          fitTextBox(tov);
+          this.overlays.push(tov);
         } else if (d.type === 'ImageOverlay' && typeof d.srcDataUrl === 'string') {
           try {
             const img = await loadOverlayImage(d.srcDataUrl);
@@ -588,6 +624,7 @@ export class OverlayTool extends ToolBase {
     const onText = (fn) => (e) => {
       if (!(this.selected instanceof TextOverlay)) return;
       fn(this.selected, e);
+      fitTextBox(this.selected);
       saveTextSettings(this._textSettings());
       this.requestDraw();
     };
@@ -635,7 +672,7 @@ export class OverlayTool extends ToolBase {
 
     const textInp = q('.overlay-panel__text-input');
     textInp.addEventListener('input', (e) => {
-      if (this.selected instanceof TextOverlay) { this.selected.text = e.target.value; this.requestDraw(); }
+      if (this.selected instanceof TextOverlay) { this.selected.text = e.target.value; fitTextBox(this.selected); this.requestDraw(); }
     });
     // Enter в поле — завершить ввод (снять фокус), а не отдавать редактору
     textInp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); textInp.blur(); } });

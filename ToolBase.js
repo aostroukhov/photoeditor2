@@ -165,10 +165,10 @@ export class ToolBase {
     this._unobserveResize();
     this._cancelFrames();
     this.onSuspend();
-    if (this.overlayCanvas) {
-      this._clearCanvas();
-      this.overlayCanvas.style.pointerEvents = 'none';
-    }
+    // Backing store освобождаем (полноразмерный DPR-буфер на каждый приостановленный
+    // инструмент — десятки МБ на retina); _viewW/_viewH остаются, чтобы при resume
+    // _syncCanvasSize() вычислил kx/ky относительно размера на момент suspend.
+    this._removeCanvas({ keepView: true });
     this._suspending = true;
     this.pe.dialogs?.close(this.id);
     this._suspending = false;
@@ -282,16 +282,21 @@ export class ToolBase {
     if (!this._opts.canvasPointer) cv.style.pointerEvents = 'none';
     this.overlayCanvas = cv;
     this.overlayCtx    = cv.getContext('2d');
-    this._viewW = 0; this._viewH = 0; this._dpr = 0;
+    this._dpr = 0;                      // backing store ещё не выделен → _syncCanvasSize выделит
     parent?.appendChild(cv);
   }
 
-  _removeCanvas() {
+  /**
+   * Удаляет overlay-canvas. keepView — сохранить логический размер (suspend):
+   * состояние инструмента остаётся в этих координатах до resume.
+   */
+  _removeCanvas({ keepView = false } = {}) {
     if (!this.overlayCanvas) return;
+    this.overlayCanvas.width = 0; this.overlayCanvas.height = 0;   // освобождаем буфер сразу
     this.overlayCanvas.remove();
     this.overlayCanvas = null;
     this.overlayCtx    = null;
-    this._viewW = 0; this._viewH = 0;
+    if (!keepView) { this._viewW = 0; this._viewH = 0; }
   }
 
   _showCanvas() {
