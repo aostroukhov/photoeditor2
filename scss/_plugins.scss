@@ -1,4 +1,5 @@
 // ─── Плагин-инструменты (Plugin API) ─────────────────────────────────────────
+@use 'variables' as *;
 //
 // Базовый стиль для панелей плагинов.
 // Каждый плагин МОЖЕТ:
@@ -42,8 +43,9 @@
   min-width:  $min-width;
 }
 
-// Полноширинная полоса снизу (как OverlayPanel)
-@mixin plugin-panel-fullwidth {
+// Полноширинная полоса над тулбаром (панели Crop/Overlay/Draw/Mask/Adjust и плагинов)
+// $side-margins: на экранах ≥ 30em оставить место боковым панелям Импорт/Экспорт
+@mixin plugin-panel-fullwidth($padding: 0.625em 0.75em 0.75em, $side-margins: true) {
   bottom:       var(--pe-toolbar-h);
   left:         0;
   right:        0;
@@ -52,10 +54,12 @@
   border-left:  none;
   border-right: none;
   border-bottom: none;
-  padding:      0.625em 0.75em 0.75em;
+  padding:      $padding;
 
-  @media (min-width: 30em) {
-    margin: 0 13.75em; // отступы под боковые панели
+  @if $side-margins {
+    @media (min-width: 30em) {
+      margin: 0 13.75em; // отступы под боковые панели
+    }
   }
 }
 
@@ -64,9 +68,7 @@
 // Добавляйте сюда позиционирование своих панелей.
 // Это единственное место в SCSS, которое нужно трогать при добавлении плагина.
 
-// Пример: WatermarkTool (WatermarkTool.js)
-// Раскомментируйте, если хотите управлять позицией через SCSS, а не JS:
-//
+// Пример:
 // .pe-panel--watermark {
 //   @include plugin-panel-center(22em);
 // }

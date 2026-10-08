@@ -1,63 +1,29 @@
-import { EditorConfig } from './EditorConfig.js';
-
 /**
- * OverlayTool v3.6
+ * OverlayTool — текстовые и графические оверлеи поверх изображения.
  *
- * Изменения v3.6:
- *  • Все внутренние поля и методы переведены на ES2022 Private Fields (#).
- *  • Bound-обработчики событий объявлены как приватные поля — гарантирует
- *    корректный removeEventListener и исключает подмену снаружи.
- *  • Убраны вызовы _handleToolStop (метод удалён из PhotoEditor v3.6).
- *  • apply() больше не экспортирует в this.photoEditor.export автоматически —
- *    сохранение в источник только через requestClose().
- *  • destroyCanvas() переименован в destroy() для единообразия API инструментов.
- *  • Добавлен публичный метод redraw() — тонкая обёртка над #draw().
- *    Нужен для вызова из других инструментов (CropTool.crop()), поскольку
- *    ES2022 Private Fields запрещают доступ к #draw() из чужого класса.
+ * Оверлеи живут в логических координатах overlay и НЕ наносятся на pe.img до
+ * «Применить». Выбранный оверлей двигается, масштабируется за углы
+ * (для текста — вместе с размером шрифта) и вращается за жёлтую ручку.
+ * При «Применить» набор сохраняется в localStorage-историю; пресеты берутся
+ * из EditorConfig.overlay.presets.
  *
- * ── Архитектурная заметка о redraw() ─────────────────────────────────────────
+ * renderToCanvas() используется также ExportPanel и PhotoEditor: экспорт
+ * включает незакоммиченные оверлеи.
  *
- * #draw() намеренно приватный: он управляет внутренним состоянием canvas
- * и не должен вызываться произвольно. Единственный легитимный внешний вызов —
- * уведомление от CropTool о смене изображения после crop(), что требует
- * перерисовки незакоммиченных оверлеев. Именно для этого и существует redraw().
- *
- * ── Жизненный цикл ───────────────────────────────────────────────────────────
- *   start()         — активация или resume из suspended-состояния.
- *   suspend()       — приостановка: скрываем UI, сохраняем overlays[].
- *   cancel()        — отмена: уничтожаем canvas без записи в img.
- *   apply()         — применение: записываем оверлеи в img через commitImage().
- *   openSettings()  — повторный клик по кнопке инструмента.
- *   destroy()       — полный сброс при PhotoEditor.close().
- *
- * Оверлеи НЕ наносятся на photoEditor.img до нажатия «Применить».
- * При переключении инструментов canvas скрывается (suspend),
- * настройки и оверлеи сохраняются до следующего resume().
- *
- * ── Публичные поля ────────────────────────────────────────────────────────────
- *   isActive, isSuspended
- *   overlayCanvas, overlayCtx   (CropTool проверяет overlayCanvas)
- *   overlays, selected
- *
- * ── Публичные методы ─────────────────────────────────────────────────────────
- *   start(), suspend(), cancel(), apply(), openSettings(), destroy()
- *   renderToCanvas()
- *   onKeyDown(e)
- *   addTextOverlay(opts), addImageOverlay(source, opts)
- *   redraw()
- *
- * ── Приватные поля (#) ────────────────────────────────────────────────────────
- *   #historySize, #stopping, #suspending
- *   #drag, #resize, #rotate, #panel
- *   Bound-обработчики: #onMouseDownBound и т.д.
+ * Жизненный цикл, canvas, указатель, панель и клавиатура — в ToolBase.
  */
 
-const HANDLE_RADIUS     = EditorConfig.overlay.handleRadius;
-const MIN_SIZE          = EditorConfig.overlay.minSize;
-const ROTATE_OFFSET     = EditorConfig.overlay.rotateOffset;
-const HISTORY_KEY       = EditorConfig.overlay.historyKey;
-const TEXT_SETTINGS_KEY = EditorConfig.overlay.textSettingsKey;
-const MAX_OVERLAY_FRAC  = EditorConfig.overlay.maxOverlayFrac;
+import { EditorConfig } from './EditorConfig.js';
+import { ToolBase }     from './ToolBase.js';
+import { safeCssColor } from './utils.js';
+
+const CFG               = EditorConfig.overlay;
+const HANDLE_RADIUS     = CFG.handleRadius;
+const MIN_SIZE          = CFG.minSize;
+const ROTATE_OFFSET     = CFG.rotateOffset;
+const HISTORY_KEY       = CFG.historyKey;
+const TEXT_SETTINGS_KEY = CFG.textSettingsKey;
+const MAX_OVERLAY_FRAC  = CFG.maxOverlayFrac;
 
 const FONT_FAMILIES = [
   'sans-serif', 'serif', 'monospace', 'cursive', 'fantasy',
@@ -65,48 +31,63 @@ const FONT_FAMILIES = [
   'Georgia', 'Times New Roman', 'Courier New', 'Impact',
 ];
 
-function _loadTextSettings() {
+function loadTextSettings() {
   try {
     const raw = localStorage.getItem(TEXT_SETTINGS_KEY);
-    if (!raw) return {};
-    return JSON.parse(raw);
+    const o = raw ? JSON.parse(raw) : {};
+    return o && typeof o === 'object' ? o : {};
   } catch { return {}; }
 }
-
-function _saveTextSettings(settings) {
-  try { localStorage.setItem(TEXT_SETTINGS_KEY, JSON.stringify(settings)); } catch {}
+function saveTextSettings(settings) {
+  try { localStorage.setItem(TEXT_SETTINGS_KEY, JSON.stringify(settings)); } catch { /* ignore */ }
 }
+function loadHistory() {
+  try {
+    const arr = JSON.parse(localStorage.getItem(HISTORY_KEY) ?? '[]');
+    return Array.isArray(arr) ? arr : [];
+  } catch { return []; }
+}
+function saveHistoryList(list) {
+  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(list)); } catch { /* квота / private browsing */ }
+}
+const num = (v, fallback) => (Number.isFinite(Number(v)) ? Number(v) : fallback);
 
 
 // ─── Модели ───────────────────────────────────────────────────────────────────
 
-class Overlay {
-  constructor({ x=100, y=100, width=200, height=80, rotation=0, opacity=1, lockAspect=true } = {}) {
+let nextOverlayId = 1;
+
+export class Overlay {
+  /** Явный тип для сериализации (constructor.name ломается минификацией). */
+  static type = 'Overlay';
+
+  constructor({ x = 100, y = 100, width = 200, height = 80, rotation = 0, opacity = 1, lockAspect = true } = {}) {
     this.x = x; this.y = y; this.width = width; this.height = height;
     this.rotation = rotation; this.opacity = opacity; this.lockAspect = lockAspect;
-    this.id = Overlay._nextId++;
+    this.id = nextOverlayId++;
   }
   get cx() { return this.x + this.width  / 2; }
   get cy() { return this.y + this.height / 2; }
   render(_ctx) {}
   toJSON() {
     return {
-      type: this.constructor.name,
+      type: this.constructor.type,
       x: this.x, y: this.y, width: this.width, height: this.height,
       rotation: this.rotation, opacity: this.opacity, lockAspect: this.lockAspect,
     };
   }
 }
-Overlay._nextId = 1;
 
 export class TextOverlay extends Overlay {
+  static type = 'TextOverlay';
+
   constructor({
     text = 'Текст', fontFamily = 'sans-serif', fontSize = 48,
     fontWeight = 'bold', color = '#ffffff', strokeColor = '#000000',
     strokeWidth = 2, ...rest
   } = {}) {
     super(rest);
-    this.text        = text;
+    this.text        = String(text);
     this.fontFamily  = fontFamily;
     this.fontSize    = fontSize;
     this.fontWeight  = fontWeight;
@@ -117,11 +98,11 @@ export class TextOverlay extends Overlay {
   get font() { return `${this.fontWeight} ${this.fontSize}px ${this.fontFamily}`; }
   render(ctx) {
     ctx.save();
-    ctx.globalAlpha   = this.opacity;
+    ctx.globalAlpha  = this.opacity;
     ctx.translate(this.cx, this.cy); ctx.rotate(this.rotation);
-    ctx.font          = this.font;
-    ctx.textAlign     = 'center';
-    ctx.textBaseline  = 'middle';
+    ctx.font         = this.font;
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
     if (this.strokeWidth > 0 && this.strokeColor) {
       ctx.strokeStyle = this.strokeColor;
       ctx.lineWidth   = this.strokeWidth * 2;
@@ -143,6 +124,8 @@ export class TextOverlay extends Overlay {
 }
 
 export class ImageOverlay extends Overlay {
+  static type = 'ImageOverlay';
+
   constructor({ source = null, srcDataUrl = null, ...rest } = {}) {
     super(rest);
     this.source     = source;
@@ -153,206 +136,328 @@ export class ImageOverlay extends Overlay {
     ctx.save();
     ctx.globalAlpha = this.opacity;
     ctx.translate(this.cx, this.cy); ctx.rotate(this.rotation);
-    ctx.drawImage(this.source, -this.width/2, -this.height/2, this.width, this.height);
+    ctx.drawImage(this.source, -this.width / 2, -this.height / 2, this.width, this.height);
     ctx.restore();
   }
   toJSON() { return { ...super.toJSON(), srcDataUrl: this.srcDataUrl }; }
 }
 
+/** Общий контекст для measureText (размер рамки текстового оверлея). */
+let measureCtx = null;
+function getMeasureCtx() {
+  if (!measureCtx) measureCtx = document.createElement('canvas').getContext('2d');
+  return measureCtx;
+}
+
+/**
+ * Подгоняет рамку текстового оверлея под глифы (с учётом обводки), сохраняя центр.
+ * Рамка нужна для hit-test, ручек и ручки вращения — раньше она задавалась как
+ * доля холста и не зависела от текста, так что текст выходил за ручки.
+ */
+export function fitTextBox(ov) {
+  const ctx = getMeasureCtx();
+  if (!ctx) return;
+  const cx = ov.cx, cy = ov.cy;
+  ctx.font = ov.font;
+  const m   = ctx.measureText(ov.text || ' ');
+  const pad = Math.max(2, ov.fontSize * 0.08);
+  const asc = m.actualBoundingBoxAscent, desc = m.actualBoundingBoxDescent;
+  const glyphH = (Number.isFinite(asc) && Number.isFinite(desc) && asc + desc > 0) ? asc + desc : ov.fontSize * 1.15;
+  ov.width  = Math.max(MIN_SIZE, m.width + 2 * ov.strokeWidth + 2 * pad);
+  ov.height = Math.max(MIN_SIZE, glyphH  + 2 * ov.strokeWidth + 2 * pad);
+  ov.x = cx - ov.width / 2;
+  ov.y = cy - ov.height / 2;
+}
+
+/** Загружает картинку оверлея (data: — без CORS, внешний URL — с crossOrigin). */
+function loadOverlayImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    if (!src.startsWith('data:')) img.crossOrigin = 'anonymous';
+    img.onload  = () => resolve(img);
+    img.onerror = () => reject(new Error('OverlayTool: не удалось загрузить изображение оверлея'));
+    img.src = src;
+  });
+}
+
 
 // ─── OverlayTool ──────────────────────────────────────────────────────────────
 
-export class OverlayTool {
-
-  // ── Приватные поля ──────────────────────────────────────────────────────────
-
-  /** Максимальная глубина истории оверлеев (число сохранённых наборов). */
-  #historySize;
-
-  /**
-   * true — идёт destroy/cancel; предотвращает повторный вход
-   * (например, если onClose панели вызывает cancel()).
-   */
-  #stopping = false;
-
-  /**
-   * true — идёт programmatic suspend(); предотвращает вызов suspend()
-   * из onClose панели при закрытии диалога изнутри suspend().
-   */
-  #suspending = false;
-
-  /** Состояние перетаскивания оверлея: { startX, startY, origX, origY }. */
-  #drag   = null;
-  /** Состояние resize оверлея: { handle, origW, origH, origX, origY, aspectRatio }. */
-  #resize = null;
-  /** Состояние вращения оверлея: { startAngle }. */
-  #rotate = null;
-
-  /** DOM-элемент панели управления. null когда инструмент неактивен. */
-  #panel  = null;
-
-  // ── Bound-обработчики событий ─────────────────────────────────────────────
-  //
-  // Приватные стрелочные поля: один объект функции на весь жизненный цикл.
-  // Это обязательное условие для корректного removeEventListener.
-  // Без этого каждый вызов _bindEvents создаёт новый объект → утечка слушателей.
-
-  #onMouseDownBound  = (e) => this.#onMouseDown(e);
-  #onMouseMoveBound  = (e) => this.#onMouseMove(e);
-  #onMouseUpBound    = ()  => this.#onMouseUp();
-  #onTouchStartBound = (e) => this.#onTouchStart(e);
-  #onTouchMoveBound  = (e) => this.#onTouchMove(e);
-  #onTouchEndBound   = ()  => this.#onTouchEnd();
-  #onWinResizeBound  = ()  => this.#onWinResize();
-
-
-  // ── Публичные поля ──────────────────────────────────────────────────────────
-
-  /** true — инструмент активен (canvas виден, события привязаны). */
-  isActive    = false;
-  /** true — приостановлен (оверлеи сохранены, canvas скрыт). */
-  isSuspended = false;
-
-  /**
-   * Canvas-оверлей поверх imgElement.
-   * Публичный: CropTool проверяет его наличие перед вызовом redraw().
-   */
-  overlayCanvas = null;
-  /** 2D-контекст overlayCanvas. */
-  overlayCtx    = null;
+export class OverlayTool extends ToolBase {
 
   /** Все оверлеи текущей сессии (сохраняются между suspend/resume). */
-  overlays  = [];
+  overlays = [];
   /** Выбранный оверлей или null. */
-  selected  = null;
+  selected = null;
 
-
-  // ── Конструктор ─────────────────────────────────────────────────────────────
+  _historySize   = CFG.historySize;
+  _drag   = null;   // { startX, startY, origX, origY }
+  _resize = null;   // { handle, origW, origH, origX, origY, aspectRatio, origFontSize }
+  _rotate = null;   // { startAngle }
+  _applyingEntry = false;
 
   constructor(photoEditor, opts = {}) {
-    this.photoEditor  = photoEditor;
-    this.#historySize = opts.historySize ?? EditorConfig.overlay.historySize;
+    super(photoEditor, { id: 'overlay' });
+    this._historySize = opts.historySize ?? CFG.historySize;
   }
 
 
-  // ── Публичный API: жизненный цикл ───────────────────────────────────────────
+  // ─── Хуки жизненного цикла ────────────────────────────────────────────────
 
-  start() {
-    if (this.isSuspended) { this.#resume(); return; }
-    if (this.isActive)    return;
+  onStart()  {}
+  onResume() {}
 
-    const imgEl = this.photoEditor.imgElement;
-    if (!imgEl || !imgEl.naturalWidth) {
-      imgEl?.addEventListener('load', () => {
-        if (this.photoEditor.imgElement?.naturalWidth) this.start();
-      }, { once: true });
+  onSuspend() {
+    this.selected = null;
+    this._drag = null; this._resize = null; this._rotate = null;
+  }
+
+  onCancel()  { this.overlays = []; this.selected = null; }
+  onDestroy() { this.overlays = []; this.selected = null; }
+
+  onApply() {
+    if (!this.overlays.length || !this.pe.img) { this.overlays = []; this.selected = null; return null; }
+    this._saveHistory();
+    const out = this.renderToCanvas();
+    this.overlays = []; this.selected = null;
+    return out;
+  }
+
+  onViewResize(kx, ky) {
+    for (const ov of this.overlays) {
+      ov.x *= kx; ov.y *= ky; ov.width *= kx; ov.height *= ky;
+      // Глифы задаются fontSize, а не рамкой — масштабируем и их
+      if (ov instanceof TextOverlay) { ov.fontSize = Math.max(1, ov.fontSize * ky); ov.strokeWidth *= ky; fitTextBox(ov); }
+    }
+  }
+
+  onDraw(ctx) {
+    for (const ov of this.overlays) {
+      ov.render(ctx);
+      if (ov === this.selected) this._drawHandles(ctx, ov);
+    }
+  }
+
+  /** Совместимость: внешняя перерисовка. */
+  redraw() { this.requestDraw(); }
+
+
+  // ─── Публичный API ────────────────────────────────────────────────────────
+
+  /**
+   * pe.img + все оверлеи в натуральном разрешении.
+   * @returns {HTMLCanvasElement}
+   */
+  renderToCanvas() {
+    const img = this.pe.img;
+    if (!img) throw new Error('[OverlayTool] renderToCanvas: img не задан');
+    const out = document.createElement('canvas');
+    out.width  = img.naturalWidth;
+    out.height = img.naturalHeight;
+    const ctx  = out.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    if (!this.overlays.length) return out;
+    // viewW может быть 0, если инструмент ни разу не стартовал — тогда оверлеев тоже нет
+    const k = this.viewW ? img.naturalWidth / this.viewW : 1;
+    for (const ov of this.overlays) { ctx.save(); ctx.scale(k, k); ov.render(ctx); ctx.restore(); }
+    return out;
+  }
+
+  addTextOverlay(opts = {}) {
+    const cw = this.viewW || 400, ch = this.viewH || 300;
+    const saved = loadTextSettings();
+    const ov = new TextOverlay({
+      x: Math.round(cw * 0.35), y: Math.round(ch * 0.42),
+      width:  Math.round(cw * MAX_OVERLAY_FRAC),
+      height: Math.round(ch * MAX_OVERLAY_FRAC * 0.35),
+      fontFamily:  FONT_FAMILIES.includes(saved.fontFamily) ? saved.fontFamily : 'sans-serif',
+      fontSize:    num(saved.fontSize, 48),
+      fontWeight:  saved.fontWeight === 'normal' ? 'normal' : 'bold',
+      color:       safeCssColor(saved.color, '#ffffff'),
+      strokeColor: safeCssColor(saved.strokeColor, '#000000'),
+      strokeWidth: num(saved.strokeWidth, 2),
+      ...opts,
+    });
+    fitTextBox(ov);
+    this._addOverlay(ov);
+    return ov;
+  }
+
+  addImageOverlay(source, opts = {}) {
+    const cw = this.viewW || 400, ch = this.viewH || 300;
+    const srcW = source.naturalWidth  || source.width  || cw * MAX_OVERLAY_FRAC;
+    const srcH = source.naturalHeight || source.height || ch * MAX_OVERLAY_FRAC;
+    const k    = Math.min(1, (cw * MAX_OVERLAY_FRAC) / srcW, (ch * MAX_OVERLAY_FRAC) / srcH);
+    const ov   = new ImageOverlay({
+      source,
+      x: Math.round((cw - srcW * k) / 2), y: Math.round((ch - srcH * k) / 2),
+      width: Math.round(srcW * k), height: Math.round(srcH * k),
+      ...opts,
+    });
+    this._addOverlay(ov);
+    return ov;
+  }
+
+  _addOverlay(ov) {
+    this.overlays.push(ov);
+    this.selected = ov;
+    this._syncPanel(); this.requestDraw();
+  }
+
+  _removeOverlay(ov) {
+    this.overlays = this.overlays.filter(o => o !== ov);
+    if (this.selected === ov) this.selected = this.overlays.at(-1) ?? null;
+    this._syncPanel(); this.requestDraw();
+  }
+
+  _centerSelected() {
+    const ov = this.selected;
+    if (!ov) return;
+    ov.x = Math.round((this.viewW - ov.width)  / 2);
+    ov.y = Math.round((this.viewH - ov.height) / 2);
+    this._syncPanel(); this.requestDraw();
+  }
+
+
+  // ─── Геометрия ────────────────────────────────────────────────────────────
+
+  _corners(ov) {
+    const hw = ov.width / 2, hh = ov.height / 2;
+    const cos = Math.cos(ov.rotation), sin = Math.sin(ov.rotation);
+    return [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]].map(([lx, ly]) => ({
+      x: ov.cx + lx * cos - ly * sin,
+      y: ov.cy + lx * sin + ly * cos,
+    }));
+  }
+
+  _rotateHandle(ov) {
+    const c   = this._corners(ov);
+    const mx  = (c[0].x + c[1].x) / 2, my = (c[0].y + c[1].y) / 2;
+    const dx  = mx - ov.cx, dy = my - ov.cy;
+    const len = Math.hypot(dx, dy) || 1;
+    return { x: mx + dx / len * ROTATE_OFFSET, y: my + dy / len * ROTATE_OFFSET };
+  }
+
+  _worldToLocal(ov, wx, wy) {
+    const dx = wx - ov.cx, dy = wy - ov.cy;
+    const cos = Math.cos(-ov.rotation), sin = Math.sin(-ov.rotation);
+    return { lx: dx * cos - dy * sin, ly: dx * sin + dy * cos };
+  }
+
+  _hitTest(x, y) {
+    for (let i = this.overlays.length - 1; i >= 0; i--) {
+      const ov = this.overlays[i];
+      // Ручки рисуются только у выбранного — у остальных их не проверяем
+      if (ov === this.selected) {
+        const rh = this._rotateHandle(ov);
+        if (Math.hypot(x - rh.x, y - rh.y) <= HANDLE_RADIUS + 6) return { type: 'rotate', ov };
+        const names = ['topLeft', 'topRight', 'bottomRight', 'bottomLeft'];
+        const corners = this._corners(ov);
+        for (let j = 0; j < 4; j++) {
+          if (Math.hypot(x - corners[j].x, y - corners[j].y) <= HANDLE_RADIUS + 6) return { type: 'resize', handle: names[j], ov };
+        }
+      }
+      const { lx, ly } = this._worldToLocal(ov, x, y);
+      if (Math.abs(lx) <= ov.width / 2 && Math.abs(ly) <= ov.height / 2) return { type: 'move', ov };
+    }
+    return null;
+  }
+
+  _drawHandles(ctx, ov) {
+    const c = this._corners(ov);
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(c[0].x, c[0].y);
+    for (let i = 1; i < 4; i++) ctx.lineTo(c[i].x, c[i].y);
+    ctx.closePath(); ctx.stroke();
+
+    ctx.fillStyle = 'rgba(60,143,224,0.9)';
+    for (const p of c) { ctx.beginPath(); ctx.arc(p.x, p.y, HANDLE_RADIUS, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); }
+
+    const rh  = this._rotateHandle(ov);
+    const mid = { x: (c[0].x + c[1].x) / 2, y: (c[0].y + c[1].y) / 2 };
+    ctx.beginPath(); ctx.moveTo(mid.x, mid.y); ctx.lineTo(rh.x, rh.y); ctx.stroke();
+    ctx.fillStyle = 'rgba(255,210,0,0.95)';
+    ctx.beginPath(); ctx.arc(rh.x, rh.y, HANDLE_RADIUS, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.restore();
+  }
+
+
+  // ─── Указатель ────────────────────────────────────────────────────────────
+
+  onHover(pt) {
+    const hit = this._hitTest(pt.x, pt.y);
+    this.overlayCanvas.style.cursor = !hit ? 'default'
+      : hit.type === 'rotate' ? 'crosshair'
+      : hit.type === 'resize' ? 'nwse-resize'
+      : 'move';
+  }
+
+  onPointerDown(pt) {
+    const { x, y } = pt;
+    const hit = this._hitTest(x, y);
+    if (!hit) {
+      if (this.selected) { this.selected = null; this._syncPanel(); this.requestDraw(); }
       return;
     }
-
-    this.isActive = true;
-    this.photoEditor.activeTool = this;
-    this.#createCanvas();
-    this.#showCanvas();
-    this.#createPanel();
-    this.#bindEvents();
-    this.#draw();
-    this.photoEditor.syncToolButtons?.();
-  }
-
-  /**
-   * Приостановить — скрыть canvas и панель, сохранить overlays[].
-   * Состояние переживает переключение на другой инструмент.
-   */
-  suspend() {
-    if (!this.isActive || this.isSuspended) return;
-
-    this.#unbindEvents();
-    this.selected = null;
-
-    if (this.overlayCanvas) {
-      this.overlayCtx.clearRect(0, 0, this.overlayCanvas.width, this.overlayCanvas.height);
-      this.overlayCanvas.style.pointerEvents = 'none';
-      this.#draw();
+    const { type, ov, handle } = hit;
+    if (this.selected !== ov) {
+      this.selected = ov;
+      // Поднимаем выбранный на верх стека — он рендерится поверх
+      this.overlays.splice(this.overlays.indexOf(ov), 1);
+      this.overlays.push(ov);
+      this._syncPanel(); this.requestDraw();
     }
-
-    // Флаг: предотвращает вызов suspend() из onClose панели во время suspend()
-    this.#suspending = true;
-    this.photoEditor.dialogs?.close('overlay');
-    this.#suspending = false;
-
-    this.isActive    = false;
-    this.isSuspended = true;
-    this.photoEditor.activeTool = null;
-    this.photoEditor.syncToolButtons?.();
+    if      (type === 'move')   this._drag   = { startX: x, startY: y, origX: ov.x, origY: ov.y };
+    else if (type === 'resize') this._resize = { handle, origW: ov.width, origH: ov.height, origX: ov.x, origY: ov.y, aspectRatio: ov.width / ov.height, origFontSize: ov.fontSize };
+    else                        this._rotate = { startAngle: Math.atan2(y - ov.cy, x - ov.cx) - ov.rotation };
   }
 
-  /** Отмена — уничтожить canvas и панель без записи в img. */
-  cancel() {
-    this.overlays = [];
-    this.selected = null;
-    this.#destroyInternal();
+  onPointerMove(pt) {
+    const ov = this.selected;
+    if (!ov || (!this._drag && !this._resize && !this._rotate)) return;   // ранний выход: без операции не перерисовываем
+    const { x, y } = pt;
+
+    if (this._drag) {
+      ov.x = this._drag.origX + (x - this._drag.startX);
+      ov.y = this._drag.origY + (y - this._drag.startY);
+    } else if (this._rotate) {
+      ov.rotation = Math.atan2(y - ov.cy, x - ov.cx) - this._rotate.startAngle;
+    } else if (this._resize) {
+      const r = this._resize;
+      const { lx: dlx, ly: dly } = this._worldToLocal(ov, x, y);
+      const sx = (r.handle === 'topRight' || r.handle === 'bottomRight') ? 1 : -1;
+      const sy = (r.handle === 'bottomRight' || r.handle === 'bottomLeft') ? 1 : -1;
+      const dx = dlx - sx * r.origW / 2, dy = dly - sy * r.origH / 2;
+      const newW = Math.max(MIN_SIZE, r.origW + sx * dx * 2);
+      const newH = ov.lockAspect ? newW / r.aspectRatio : Math.max(MIN_SIZE, r.origH + sy * dy * 2);
+      if (ov instanceof TextOverlay && r.origFontSize) {
+        // Текст: растягивание меняет размер шрифта (по большему из коэффициентов),
+        // рамка всегда следует за глифами; центр остаётся на месте
+        const k = Math.max(newW / r.origW, newH / r.origH);
+        ov.fontSize = Math.max(6, Math.round(r.origFontSize * k));
+        fitTextBox(ov);
+      } else {
+        ov.width = newW; ov.height = newH;
+        ov.x = r.origX + (r.origW - newW) / 2;
+        ov.y = r.origY + (r.origH - newH) / 2;
+      }
+    }
+    this._syncPanel();
+    this.requestDraw();
   }
 
-  /**
-   * Применить — нанести оверлеи на изображение через commitImage().
-   * Сохранение в источник (this.photoEditor.export) происходит только
-   * при явном закрытии через requestClose().
-   */
-  apply() {
-    this.#saveHistory();
-    const result = this.renderToCanvas();
-
-    const url    = result.toDataURL('image/png');
-    const newImg = new Image();
-    newImg.onload = () => {
-      this.photoEditor.commitImage(newImg);
-    };
-    newImg.src = url;
-
-    this.overlays = [];
-    this.selected = null;
-    this.#destroyInternal();
+  onPointerUp() {
+    this._drag = null; this._resize = null; this._rotate = null;
+    if (this.overlayCanvas) this.overlayCanvas.style.cursor = 'default';
   }
 
-  /** Повторный клик по кнопке инструмента в тулбаре — переключить панель. */
-  openSettings() {
-    this.photoEditor.dialogs?.toggle('overlay');
-  }
+  onPointerCancel() { this.onPointerUp(); }
 
-  /**
-   * Полный сброс при PhotoEditor.close().
-   * Переименован из destroyCanvas() для единообразия API инструментов.
-   */
-  destroy() {
-    this.overlays = [];
-    this.selected = null;
-    this.#destroyInternal(true);
-    this.overlayCanvas?.remove();
-    this.overlayCanvas = null;
-    this.overlayCtx    = null;
-  }
 
-  /**
-   * Публичная обёртка над #draw() для вызова из других инструментов.
-   *
-   * Необходима потому что ES2022 Private Fields запрещают обращение
-   * к #draw() из кода другого класса — это SyntaxError при парсинге.
-   * CropTool.crop() вызывает redraw() после смены изображения, чтобы
-   * незакоммиченные оверлеи отрисовались поверх нового img.
-   */
-  redraw() {
-    this.#draw();
-  }
+  // ─── Клавиатура ───────────────────────────────────────────────────────────
 
-  /**
-   * Обработчик клавиатуры — вызывается из PhotoEditor#onKeyDown.
-   * Возвращает true если событие обработано.
-   *
-   * @param {KeyboardEvent} e
-   * @returns {boolean}
-   */
-  onKeyDown(e) {
-    if (e.key === 'Escape') { this.cancel(); return true; }
+  onKey(e) {
     if (!this.selected) return false;
     const step = e.shiftKey ? 10 : 1;
     switch (e.key) {
@@ -360,558 +465,86 @@ export class OverlayTool {
       case 'ArrowDown':  this.selected.y += step; break;
       case 'ArrowLeft':  this.selected.x -= step; break;
       case 'ArrowRight': this.selected.x += step; break;
-      case 'Home':    this.#centerSelected(); break;
+      case 'Home':       this._centerSelected(); return true;
       case 'Delete':
-      case 'Backspace': this.#removeOverlay(this.selected); break;
+      case 'Backspace':  this._removeOverlay(this.selected); return true;
       default: return false;
     }
-    this.#draw(); this.#syncPanel(); return true;
+    this._syncPanel(); this.requestDraw();
+    return true;
   }
 
 
-  // ── Публичный API: экспорт ───────────────────────────────────────────────────
+  // ─── История ──────────────────────────────────────────────────────────────
 
-  /**
-   * Рендерит итоговый canvas: pe.img + все оверлеи в натуральном разрешении.
-   * Используется в apply() и ExportPanel (#getResultCanvas).
-   *
-   * @returns {HTMLCanvasElement}
-   * @throws {Error} Если pe.img не задан.
-   */
-  renderToCanvas() {
-    const pe  = this.photoEditor;
-    const img = pe.img;
-    if (!img) throw new Error('[OverlayTool] renderToCanvas: img не задан');
-
-    const out = document.createElement('canvas');
-    out.width  = img.naturalWidth;
-    out.height = img.naturalHeight;
-    const ctx  = out.getContext('2d');
-    ctx.drawImage(img, 0, 0);
-
-    if (!this.overlays.length) return out;
-
-    const dispW = pe.imgElement?.width || out.width;
-    const k     = img.naturalWidth / dispW;
-    this.overlays.forEach(ov => {
-      ctx.save(); ctx.scale(k, k); ov.render(ctx); ctx.restore();
-    });
-    return out;
-  }
-
-
-  // ── Публичный API: управление оверлеями ─────────────────────────────────────
-
-  /**
-   * Добавляет текстовый оверлей с настройками из последнего сохранения (localStorage).
-   * @param {object} [opts]  Переопределение параметров TextOverlay.
-   * @returns {TextOverlay}
-   */
-  addTextOverlay(opts = {}) {
-    const cw    = this.overlayCanvas?.width  || 400;
-    const ch    = this.overlayCanvas?.height || 300;
-    const saved = _loadTextSettings();
-    const ov    = new TextOverlay({
-      x: Math.round(cw * 0.35), y: Math.round(ch * 0.42),
-      width:       Math.round(cw * MAX_OVERLAY_FRAC),
-      height:      Math.round(ch * MAX_OVERLAY_FRAC * 0.35),
-      fontFamily:  saved.fontFamily  || 'sans-serif',
-      fontSize:    saved.fontSize    || 48,
-      fontWeight:  saved.fontWeight  || 'bold',
-      color:       saved.color       || '#ffffff',
-      strokeColor: saved.strokeColor || '#000000',
-      strokeWidth: saved.strokeWidth ?? 2,
-      ...opts,
-    });
-    this.#addOverlay(ov);
-    return ov;
-  }
-
-  /**
-   * Добавляет оверлей изображения, масштабируя его под canvas.
-   * @param {HTMLImageElement} source
-   * @param {object}           [opts]  Переопределение параметров ImageOverlay.
-   * @returns {ImageOverlay}
-   */
-  addImageOverlay(source, opts = {}) {
-    const cw   = this.overlayCanvas?.width  || 400;
-    const ch   = this.overlayCanvas?.height || 300;
-    const srcW = source.naturalWidth  || source.width  || cw * MAX_OVERLAY_FRAC;
-    const srcH = source.naturalHeight || source.height || ch * MAX_OVERLAY_FRAC;
-    const k    = Math.min(1, (cw * MAX_OVERLAY_FRAC) / srcW, (ch * MAX_OVERLAY_FRAC) / srcH);
-    const ov   = new ImageOverlay({
-      source,
-      x: Math.round((cw - srcW*k) / 2),
-      y: Math.round((ch - srcH*k) / 2),
-      width:  Math.round(srcW*k),
-      height: Math.round(srcH*k),
-      ...opts,
-    });
-    this.#addOverlay(ov);
-    return ov;
-  }
-
-
-  // ── Приватные методы: жизненный цикл ────────────────────────────────────────
-
-  #resume() {
-    if (!this.isSuspended) return;
-    const imgEl = this.photoEditor.imgElement;
-    if (!imgEl || !imgEl.naturalWidth) return;
-
-    this.isActive    = true;
-    this.isSuspended = false;
-    this.photoEditor.activeTool = this;
-
-    if (this.overlayCanvas) {
-      this.overlayCanvas.style.pointerEvents = '';
-    } else {
-      this.#createCanvas();
-    }
-
-    this.#showCanvas();
-    if (this.#panel) {
-      this.photoEditor.dialogs?.open('overlay');
-    } else {
-      this.#createPanel();
-    }
-
-    this.#bindEvents();
-    this.#draw();
-    this.photoEditor.syncToolButtons?.();
-  }
-
-  /**
-   * @param {boolean} [silent=false]  Не трогать диалог — при destroy() DOM уже разрушается.
-   */
-  #destroyInternal(silent = false) {
-    if (this.#stopping) return;
-    this.#stopping = true;
-
-    this.#unbindEvents();
-
-    // Canvas не удаляем при обычном cancel/apply — только при полном destroy()
-    if (!this.isSuspended) {
-      if (this.overlayCanvas) {
-        this.overlayCanvas.remove();
-        this.overlayCanvas = null;
-        this.overlayCtx    = null;
-      }
-    }
-
-    const panel = this.#panel;
-    this.#panel = null;
-    if (panel) {
-      this.photoEditor.dialogs?.unregister('overlay');
-      panel.remove();
-    }
-
-    this.isActive    = false;
-    this.isSuspended = false;
-    this.#stopping   = false;
-    this.photoEditor.activeTool = null;
-    this.photoEditor.syncToolButtons?.();
-  }
-
-  #showCanvas() {
-    if (this.overlayCanvas) this.overlayCanvas.style.pointerEvents = '';
-  }
-
-
-  // ── Приватные методы: управление оверлеями ──────────────────────────────────
-
-  #addOverlay(ov) {
-    this.overlays.push(ov);
-    this.selected = ov;
-    this.#draw(); this.#syncPanel();
-  }
-
-  #removeOverlay(ov) {
-    this.overlays = this.overlays.filter(o => o !== ov);
-    if (this.selected === ov) this.selected = this.overlays.at(-1) ?? null;
-    this.#draw(); this.#syncPanel();
-  }
-
-  /** Центрировать выбранный оверлей по обеим осям. */
-  #centerSelected() {
-    const ov = this.selected;
-    if (!ov || !this.overlayCanvas) return;
-    ov.x = Math.round((this.overlayCanvas.width  - ov.width)  / 2);
-    ov.y = Math.round((this.overlayCanvas.height - ov.height) / 2);
-  }
-
-  #centerH() {
-    const ov = this.selected;
-    if (!ov || !this.overlayCanvas) return;
-    ov.x = Math.round((this.overlayCanvas.width - ov.width) / 2);
-    this.#draw(); this.#syncPanel();
-  }
-
-  #centerV() {
-    const ov = this.selected;
-    if (!ov || !this.overlayCanvas) return;
-    ov.y = Math.round((this.overlayCanvas.height - ov.height) / 2);
-    this.#draw(); this.#syncPanel();
-  }
-
-
-  // ── Приватные методы: история ────────────────────────────────────────────────
-
-  /**
-   * Сохраняет текущий набор оверлеев в localStorage-историю.
-   * Вызывается в apply() перед записью в img.
-   */
-  #saveHistory() {
+  _saveHistory() {
     if (!this.overlays.length) return;
-    try {
-      const raw = JSON.parse(localStorage.getItem(HISTORY_KEY) ?? '[]');
-      raw.unshift({ overlays: this.overlays.map(o => o.toJSON()) });
-      raw.splice(this.#historySize);
-      localStorage.setItem(HISTORY_KEY, JSON.stringify(raw));
-    } catch {}
+    const list = loadHistory();
+    list.unshift({ overlays: this.overlays.map(o => o.toJSON()) });
+    list.splice(this._historySize);
+    saveHistoryList(list);
   }
 
-  #loadHistory() {
-    try { return JSON.parse(localStorage.getItem(HISTORY_KEY) ?? '[]'); }
-    catch { return []; }
+  _deleteHistoryEntry(idx) {
+    const list = loadHistory();
+    list.splice(idx, 1);
+    saveHistoryList(list);
+    this._renderHistoryPanel();
   }
 
-  #deleteHistoryEntry(idx) {
-    try {
-      const raw = JSON.parse(localStorage.getItem(HISTORY_KEY) ?? '[]');
-      raw.splice(idx, 1);
-      localStorage.setItem(HISTORY_KEY, JSON.stringify(raw));
-    } catch {}
-    this.#renderHistoryPanel();
-  }
-
-  /**
-   * Восстанавливает набор оверлеев из записи истории.
-   * TextOverlay восстанавливается мгновенно, ImageOverlay — через Promise (загрузка img).
-   *
-   * @param {{ overlays: object[] }} entry
-   */
-  async #applyHistoryEntry(entry) {
+  /** Восстанавливает набор из записи истории (данные — недоверенные). */
+  async _applyHistoryEntry(entry) {
+    if (this._applyingEntry) return;
+    this._applyingEntry = true;
     this.overlays = []; this.selected = null;
-    for (const d of entry.overlays) {
-      if (d.type === 'TextOverlay') {
-        // Обратная совместимость: старые записи хранят font='bold 48px sans-serif'
-        if (d.font && !d.fontFamily) {
-          const m = d.font.match(/^(\w+)\s+(\d+)px\s+(.+)$/);
-          if (m) { d.fontWeight = m[1]; d.fontSize = Number(m[2]); d.fontFamily = m[3]; }
+    try {
+      for (const d of Array.isArray(entry?.overlays) ? entry.overlays : []) {
+        if (!d || typeof d !== 'object') continue;
+        if (d.type === 'TextOverlay') {
+          // Старые записи: font='bold 48px sans-serif'
+          if (d.font && !d.fontFamily) {
+            const m = String(d.font).match(/^(\w+)\s+(\d+)px\s+(.+)$/);
+            if (m) { d.fontWeight = m[1]; d.fontSize = Number(m[2]); d.fontFamily = m[3]; }
+          }
+          const tov = new TextOverlay({
+            ...d, color: safeCssColor(d.color), strokeColor: safeCssColor(d.strokeColor, '#000000'),
+            fontSize: num(d.fontSize, 48), strokeWidth: num(d.strokeWidth, 2),
+          });
+          fitTextBox(tov);
+          this.overlays.push(tov);
+        } else if (d.type === 'ImageOverlay' && typeof d.srcDataUrl === 'string') {
+          try {
+            const img = await loadOverlayImage(d.srcDataUrl);
+            this.overlays.push(new ImageOverlay({ ...d, source: img }));
+          } catch { /* битая запись — пропускаем */ }
         }
-        this.overlays.push(new TextOverlay(d));
-      } else if (d.type === 'ImageOverlay' && d.srcDataUrl) {
-        await new Promise(res => {
-          const img   = new Image();
-          img.onload  = () => { this.overlays.push(new ImageOverlay({ ...d, source: img })); res(); };
-          img.onerror = res;
-          img.src     = d.srcDataUrl;
-        });
       }
+    } finally {
+      this._applyingEntry = false;
     }
     this.selected = this.overlays.at(-1) ?? null;
-    this.#draw(); this.#syncPanel(); this.#renderHistoryPanel();
+    this._syncPanel(); this._renderHistoryPanel(); this.requestDraw();
   }
 
 
-  // ── Приватные методы: canvas ─────────────────────────────────────────────────
+  // ─── Панель ───────────────────────────────────────────────────────────────
 
-  #createCanvas() {
-    if (this.overlayCanvas) return;
-    const imgEl = this.photoEditor.imgElement;
-    const w = imgEl?.offsetWidth  || imgEl?.width  || this.photoEditor.img?.naturalWidth  || 400;
-    const h = imgEl?.offsetHeight || imgEl?.height || this.photoEditor.img?.naturalHeight || 300;
-
-    this.overlayCanvas        = document.createElement('canvas');
-    this.overlayCanvas.width  = w;
-    this.overlayCanvas.height = h;
-    this.overlayCtx           = this.overlayCanvas.getContext('2d');
-
-    const parent = imgEl?.parentElement
-      || this.photoEditor.container?.querySelector('.photoeditor__img-container');
-    parent?.appendChild(this.overlayCanvas);
-  }
-
-  /**
-   * Синхронизирует размер canvas с текущим display-размером imgElement.
-   * При изменении масштабирует координаты и размеры всех оверлеев.
-   */
-  #syncCanvasSize() {
-    const imgEl = this.photoEditor.imgElement;
-    if (!imgEl || !this.overlayCanvas) return;
-    const newW = imgEl.offsetWidth  || imgEl.width;
-    const newH = imgEl.offsetHeight || imgEl.height;
-    if (!newW || !newH) return;
-    const kx = newW / this.overlayCanvas.width;
-    const ky = newH / this.overlayCanvas.height;
-    if (Math.abs(kx-1) > 0.001 || Math.abs(ky-1) > 0.001) {
-      this.overlays.forEach(ov => {
-        ov.x *= kx; ov.y *= ky; ov.width *= kx; ov.height *= ky;
-      });
-    }
-    this.overlayCanvas.width  = newW;
-    this.overlayCanvas.height = newH;
-  }
-
-
-  // ── Приватные методы: отрисовка ──────────────────────────────────────────────
-
-  #draw() {
-    if (!this.overlayCtx) return;
-    this.#syncCanvasSize();
-    const ctx = this.overlayCtx;
-    ctx.clearRect(0, 0, this.overlayCanvas.width, this.overlayCanvas.height);
-    this.overlays.forEach(ov => {
-      ov.render(ctx);
-      // Ручки трансформации — только когда инструмент активен
-      if (ov === this.selected && this.isActive) this.#drawHandles(ctx, ov);
-    });
-  }
-
-  #drawHandles(ctx, ov) {
-    const c = this.#getCorners(ov);
-    ctx.save();
-    ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.moveTo(c[0].x, c[0].y);
-    c.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
-    ctx.closePath(); ctx.stroke();
-
-    ctx.fillStyle = 'rgba(60,143,224,0.9)';
-    c.forEach(p => {
-      ctx.beginPath(); ctx.arc(p.x, p.y, HANDLE_RADIUS, 0, Math.PI*2);
-      ctx.fill(); ctx.stroke();
-    });
-
-    const rh  = this.#getRotateHandle(ov);
-    const mid = { x: (c[0].x + c[1].x) / 2, y: (c[0].y + c[1].y) / 2 };
-    ctx.beginPath(); ctx.moveTo(mid.x, mid.y); ctx.lineTo(rh.x, rh.y); ctx.stroke();
-
-    ctx.fillStyle = 'rgba(255,210,0,0.95)';
-    ctx.beginPath(); ctx.arc(rh.x, rh.y, HANDLE_RADIUS, 0, Math.PI*2);
-    ctx.fill(); ctx.stroke();
-    ctx.restore();
-  }
-
-
-  // ── Приватные методы: геометрия ─────────────────────────────────────────────
-
-  /** Возвращает мировые координаты четырёх углов оверлея с учётом вращения. */
-  #getCorners(ov) {
-    const hw = ov.width/2, hh = ov.height/2;
-    const cos = Math.cos(ov.rotation), sin = Math.sin(ov.rotation);
-    return [[-hw,-hh],[hw,-hh],[hw,hh],[-hw,hh]].map(([lx, ly]) => ({
-      x: ov.cx + lx*cos - ly*sin,
-      y: ov.cy + lx*sin + ly*cos,
-    }));
-  }
-
-  /** Возвращает мировые координаты ручки вращения (над центром верхней грани). */
-  #getRotateHandle(ov) {
-    const c   = this.#getCorners(ov);
-    const mx  = (c[0].x + c[1].x) / 2, my = (c[0].y + c[1].y) / 2;
-    const dx  = mx - ov.cx, dy = my - ov.cy;
-    const len = Math.hypot(dx, dy) || 1;
-    return { x: mx + dx/len * ROTATE_OFFSET, y: my + dy/len * ROTATE_OFFSET };
-  }
-
-  /** Переводит мировые координаты в локальные (центр оверлея = 0,0, угол = 0). */
-  #worldToLocal(ov, wx, wy) {
-    const dx  = wx - ov.cx, dy = wy - ov.cy;
-    const cos = Math.cos(-ov.rotation), sin = Math.sin(-ov.rotation);
-    return { lx: dx*cos - dy*sin, ly: dx*sin + dy*cos };
-  }
-
-  /**
-   * Hit-test по всем оверлеям (от верхнего к нижнему).
-   * @returns {{ type: 'rotate'|'resize'|'move', ov: Overlay, handle?: string }|null}
-   */
-  #hitTest(x, y) {
-    for (let i = this.overlays.length - 1; i >= 0; i--) {
-      const ov = this.overlays[i];
-      const rh = this.#getRotateHandle(ov);
-      if (Math.hypot(x - rh.x, y - rh.y) <= HANDLE_RADIUS + 6)
-        return { type: 'rotate', ov };
-
-      if (ov === this.selected) {
-        const names   = ['topLeft','topRight','bottomRight','bottomLeft'];
-        const corners = this.#getCorners(ov);
-        for (let j = 0; j < 4; j++) {
-          if (Math.hypot(x - corners[j].x, y - corners[j].y) <= HANDLE_RADIUS + 6)
-            return { type: 'resize', handle: names[j], ov };
-        }
-      }
-
-      const { lx, ly } = this.#worldToLocal(ov, x, y);
-      if (Math.abs(lx) <= ov.width/2 && Math.abs(ly) <= ov.height/2)
-        return { type: 'move', ov };
-    }
-    return null;
-  }
-
-
-  // ── Приватные методы: взаимодействие ────────────────────────────────────────
-
-  #clientToCanvas(cx, cy) {
-    const r = this.overlayCanvas.getBoundingClientRect();
-    return {
-      x: (cx - r.left) * (this.overlayCanvas.width  / r.width),
-      y: (cy - r.top)  * (this.overlayCanvas.height / r.height),
-    };
-  }
-
-  #onMouseDown(e) {
-    if (e.button !== 0) return;
-    const { x, y } = this.#clientToCanvas(e.clientX, e.clientY);
-    this.#startInteraction(x, y);
-  }
-  #onMouseMove(e) {
-    const { x, y } = this.#clientToCanvas(e.clientX, e.clientY);
-    this.#updateCursor(x, y); this.#continueInteraction(x, y);
-  }
-  #onMouseUp() { this.#endInteraction(); }
-
-  #onTouchStart(e) {
-    if (e.touches.length !== 1) return;
-    e.preventDefault();
-    const { x, y } = this.#clientToCanvas(e.touches[0].clientX, e.touches[0].clientY);
-    this.#startInteraction(x, y);
-  }
-  #onTouchMove(e) {
-    if (!this.#drag && !this.#resize && !this.#rotate) return;
-    e.preventDefault();
-    const { x, y } = this.#clientToCanvas(e.touches[0].clientX, e.touches[0].clientY);
-    this.#continueInteraction(x, y);
-  }
-  #onTouchEnd() { this.#endInteraction(); }
-
-  #onWinResize() {
-    requestAnimationFrame(() => requestAnimationFrame(() => this.#draw()));
-  }
-
-  #startInteraction(x, y) {
-    const hit = this.#hitTest(x, y);
-    if (!hit) { this.selected = null; this.#draw(); this.#syncPanel(); return; }
-
-    const { type, ov, handle } = hit;
-    if (this.selected !== ov) {
-      this.selected = ov;
-      // Поднимаем выбранный оверлей на верх стека (последний рендерится поверх)
-      const idx = this.overlays.indexOf(ov);
-      this.overlays.splice(idx, 1); this.overlays.push(ov);
-      this.#draw(); this.#syncPanel();
-    }
-
-    if      (type === 'move')   this.#drag   = { startX: x, startY: y, origX: ov.x, origY: ov.y };
-    else if (type === 'resize') this.#resize = { handle, origW: ov.width, origH: ov.height, origX: ov.x, origY: ov.y, aspectRatio: ov.width / ov.height };
-    else if (type === 'rotate') this.#rotate = { startAngle: Math.atan2(y - ov.cy, x - ov.cx) - ov.rotation };
-  }
-
-  #continueInteraction(x, y) {
-    const ov = this.selected; if (!ov) return;
-
-    if (this.#drag) {
-      ov.x = this.#drag.origX + (x - this.#drag.startX);
-      ov.y = this.#drag.origY + (y - this.#drag.startY);
-    }
-
-    if (this.#rotate) {
-      ov.rotation = Math.atan2(y - ov.cy, x - ov.cx) - this.#rotate.startAngle;
-    }
-
-    if (this.#resize) {
-      const r = this.#resize;
-      const { lx: dlx, ly: dly } = this.#worldToLocal(ov, x, y);
-      let newW, newH;
-      switch (r.handle) {
-        case 'bottomRight': { const dx=dlx-r.origW/2, dy=dly-r.origH/2; newW=Math.max(MIN_SIZE,r.origW+dx*2); newH=ov.lockAspect?newW/r.aspectRatio:Math.max(MIN_SIZE,r.origH+dy*2); break; }
-        case 'topLeft':     { const dx=dlx+r.origW/2, dy=dly+r.origH/2; newW=Math.max(MIN_SIZE,r.origW-dx*2); newH=ov.lockAspect?newW/r.aspectRatio:Math.max(MIN_SIZE,r.origH-dy*2); break; }
-        case 'topRight':    { const dx=dlx-r.origW/2, dy=dly+r.origH/2; newW=Math.max(MIN_SIZE,r.origW+dx*2); newH=ov.lockAspect?newW/r.aspectRatio:Math.max(MIN_SIZE,r.origH-dy*2); break; }
-        case 'bottomLeft':  { const dx=dlx+r.origW/2, dy=dly-r.origH/2; newW=Math.max(MIN_SIZE,r.origW-dx*2); newH=ov.lockAspect?newW/r.aspectRatio:Math.max(MIN_SIZE,r.origH+dy*2); break; }
-        default: newW = ov.width; newH = ov.height;
-      }
-      ov.width  = newW; ov.height = newH;
-      ov.x = r.origX + (r.origW - newW) / 2;
-      ov.y = r.origY + (r.origH - newH) / 2;
-    }
-
-    this.#draw(); this.#syncPanel();
-  }
-
-  #endInteraction() {
-    this.#drag = null; this.#resize = null; this.#rotate = null;
-    if (this.overlayCanvas) this.overlayCanvas.style.cursor = 'default';
-  }
-
-  #updateCursor(x, y) {
-    if (this.#drag || this.#resize || this.#rotate) return;
-    const hit = this.#hitTest(x, y);
-    this.overlayCanvas.style.cursor = !hit           ? 'default'
-      : hit.type === 'rotate' ? 'crosshair'
-      : hit.type === 'resize' ? 'nwse-resize'
-      : 'move';
-  }
-
-
-  // ── Приватные методы: подписка на события ───────────────────────────────────
-
-  #bindEvents() {
-    const c = this.overlayCanvas;
-    c.addEventListener('mousedown',  this.#onMouseDownBound);
-    c.addEventListener('touchstart', this.#onTouchStartBound, { passive: false });
-    document.addEventListener('mousemove', this.#onMouseMoveBound);
-    document.addEventListener('mouseup',   this.#onMouseUpBound);
-    document.addEventListener('touchmove', this.#onTouchMoveBound, { passive: false });
-    document.addEventListener('touchend',  this.#onTouchEndBound);
-    window.addEventListener('resize',      this.#onWinResizeBound);
-  }
-
-  #unbindEvents() {
-    if (!this.overlayCanvas) return;
-    const c = this.overlayCanvas;
-    c.removeEventListener('mousedown',  this.#onMouseDownBound);
-    c.removeEventListener('touchstart', this.#onTouchStartBound);
-    document.removeEventListener('mousemove', this.#onMouseMoveBound);
-    document.removeEventListener('mouseup',   this.#onMouseUpBound);
-    document.removeEventListener('touchmove', this.#onTouchMoveBound);
-    document.removeEventListener('touchend',  this.#onTouchEndBound);
-    window.removeEventListener('resize',      this.#onWinResizeBound);
-  }
-
-
-  // ── Приватные методы: панель управления ──────────────────────────────────────
-
-  #createPanel() {
-    if (this.#panel) return;
-
+  buildPanel() {
     const panel = document.createElement('div');
-    panel.className = 'pe-panel pe-panel--overlay';
     panel.innerHTML = `
-      <div class="pe-panel__header">
-        <div class="overlay-panel__add-btns">
+      ${ToolBase.panelHeader({
+        title: 'Оверлеи', prefix: 'overlay-panel',
+        cancelTitle: 'Отмена — убрать все оверлеи', applyTitle: 'Нанести оверлеи на изображение',
+        left: `<div class="overlay-panel__add-btns">
           <button type="button" class="photoeditor__button photoeditor__button--compact overlay-panel__btn-add-text"
-                  title="Добавить текст">
-            +<i class="icon-text" aria-hidden="true"></i>
-          </button>
+                  title="Добавить текст" aria-label="Добавить текст">+<i class="icon-text" aria-hidden="true"></i></button>
           <button type="button" class="photoeditor__button photoeditor__button--compact overlay-panel__btn-add-image"
-                  title="Добавить изображение">
-            <i class="icon-add-photo" aria-hidden="true"></i>
-          </button>
-        </div>
-        <div class="pe-panel__header-actions">
-          <button type="button" class="photoeditor__button photoeditor__button--compact overlay-panel__btn-cancel"
-                  title="Отмена — убрать все оверлеи">
-            <i class="icon-close" aria-hidden="true"></i> Отмена
-          </button>
-          <button type="button" class="photoeditor__button photoeditor__button--compact photoeditor__button--success overlay-panel__btn-apply"
-                  title="Нанести оверлеи на изображение">
-            <i class="icon-checkmark" aria-hidden="true"></i> Применить
-          </button>
-        </div>
-      </div>
+                  title="Добавить изображение" aria-label="Добавить изображение"><i class="icon-add-photo" aria-hidden="true"></i></button>
+        </div>`,
+      })}
       <div class="overlay-panel__row overlay-panel__row--selected" style="display:none">
         <button type="button" class="photoeditor__button photoeditor__button--compact photoeditor__button--danger overlay-panel__btn-delete"
-                disabled title="Удалить оверлей">
+                disabled title="Удалить оверлей (Delete)" aria-label="Удалить оверлей">
           <i class="icon-bin" aria-hidden="true"></i>
         </button>
         <label title="Прозрачность">
@@ -928,9 +561,8 @@ export class OverlayTool {
           <input type="checkbox" class="overlay-panel__lock-aspect" checked>
           <span>Пропорции</span>
         </label>
-        <button type="button"
-                class="photoeditor__button photoeditor__button--compact overlay-panel__btn-center"
-                title="Центрировать (Home)">
+        <button type="button" class="photoeditor__button photoeditor__button--compact overlay-panel__btn-center"
+                title="Центрировать (Home)" aria-label="Центрировать">
           <i class="icon-target" aria-hidden="true"></i>
         </button>
       </div>
@@ -977,365 +609,292 @@ export class OverlayTool {
         <div class="overlay-panel__presets-list"></div>
       </div>`;
 
-    this.#bindPanelEvents(panel);
-    this.photoEditor.container.appendChild(panel);
-    this.#panel = panel;
-
-    this.photoEditor.dialogs?.register('overlay', panel, {
-      group:   'tool',
-      onClose: () => {
-        // Пользователь закрыл крестиком → suspend (сохраняем оверлеи).
-        // Programmatic close (из suspend()) → игнорируем.
-        if (this.isActive && !this.#stopping && !this.#suspending) {
-          this.suspend();
-        }
-      },
-    });
-    this.photoEditor.dialogs?.open('overlay');
-    this.#renderHistoryPanel();
-    this.#renderPresetsPanel();
+    this._bindPanelEvents(panel);
+    this._bindHistoryList(panel);
+    return panel;
   }
 
-  #bindPanelEvents(p) {
-    // +Текст
-    p.querySelector('.overlay-panel__btn-add-text').addEventListener('click', () => {
+  onPanelReady() {
+    this._renderHistoryPanel();
+    this._renderPresetsPanel();
+  }
+
+  _bindPanelEvents(p) {
+    const q = (sel) => p.querySelector(sel);
+    const onText = (fn) => (e) => {
+      if (!(this.selected instanceof TextOverlay)) return;
+      fn(this.selected, e);
+      fitTextBox(this.selected);
+      saveTextSettings(this._textSettings());
+      this.requestDraw();
+    };
+
+    q('.overlay-panel__btn-add-text').addEventListener('click', () => {
       if (!this.isActive) return;
       this.addTextOverlay({ text: 'Текст' });
-      this.#syncPanel();
-      const inp = p.querySelector('.overlay-panel__text-input');
+      const inp = q('.overlay-panel__text-input');
       if (inp) { inp.focus(); inp.select(); }
     });
 
-    // +Фото — файловый input без добавления в DOM
-    p.querySelector('.overlay-panel__btn-add-image').addEventListener('click', () => {
+    q('.overlay-panel__btn-add-image').addEventListener('click', () => {
       if (!this.isActive) return;
-      const inp  = document.createElement('input');
-      inp.type   = 'file'; inp.accept = 'image/*';
+      const inp = document.createElement('input');
+      inp.type = 'file'; inp.accept = 'image/*';
       inp.addEventListener('change', () => {
-        const file = inp.files?.[0]; if (!file) return;
+        const file = inp.files?.[0];
+        if (!file || !file.type.startsWith('image/')) return;
         const reader = new FileReader();
-        reader.onload = ev => {
-          const img   = new Image();
-          img.onload  = () => this.addImageOverlay(img, { srcDataUrl: ev.target.result });
-          img.src     = ev.target.result;
+        reader.onload = async (ev) => {
+          try {
+            const img = await loadOverlayImage(ev.target.result);
+            if (this.isActive) this.addImageOverlay(img, { srcDataUrl: ev.target.result });
+          } catch (err) { console.warn('[OverlayTool]', err.message); }
         };
         reader.readAsDataURL(file);
       });
       inp.click();
     });
 
-    // Удалить / центрировать / отмена / применить
-    p.querySelector('.overlay-panel__btn-delete').addEventListener('click',  () => {
-      if (this.selected) this.#removeOverlay(this.selected);
-    });
-    p.querySelector('.overlay-panel__btn-center')?.addEventListener('click', () => {
-      if (this.selected) { this.#centerSelected(); this.#draw(); this.#syncPanel(); }
-    });
-    p.querySelector('.overlay-panel__btn-cancel').addEventListener('click', () => this.cancel());
-    p.querySelector('.overlay-panel__btn-apply').addEventListener('click',  () => this.apply());
+    q('.overlay-panel__btn-delete').addEventListener('click', () => { if (this.selected) this._removeOverlay(this.selected); });
+    q('.overlay-panel__btn-center').addEventListener('click', () => this._centerSelected());
 
-    // Прозрачность
-    const opEl  = p.querySelector('.overlay-panel__opacity');
-    const opVal = p.querySelector('.overlay-panel__val-opacity');
+    const opEl = q('.overlay-panel__opacity'), opVal = q('.overlay-panel__val-opacity');
     opEl.addEventListener('input', () => {
       if (!this.selected) return;
-      this.selected.opacity = opEl.value / 100; opVal.textContent = opEl.value; this.#draw();
+      this.selected.opacity = opEl.value / 100; opVal.textContent = opEl.value; this.requestDraw();
     });
-
-    // Поворот
-    const rotEl  = p.querySelector('.overlay-panel__rotation');
-    const rotVal = p.querySelector('.overlay-panel__val-rotation');
+    const rotEl = q('.overlay-panel__rotation'), rotVal = q('.overlay-panel__val-rotation');
     rotEl.addEventListener('input', () => {
       if (!this.selected) return;
-      this.selected.rotation = rotEl.value * Math.PI / 180;
-      rotVal.textContent = rotEl.value; this.#draw();
+      this.selected.rotation = rotEl.value * Math.PI / 180; rotVal.textContent = rotEl.value; this.requestDraw();
     });
+    q('.overlay-panel__lock-aspect').addEventListener('change', (e) => { if (this.selected) this.selected.lockAspect = e.target.checked; });
 
-    // Пропорции
-    p.querySelector('.overlay-panel__lock-aspect').addEventListener('change', e => {
-      if (this.selected) this.selected.lockAspect = e.target.checked;
+    const textInp = q('.overlay-panel__text-input');
+    textInp.addEventListener('input', (e) => {
+      if (this.selected instanceof TextOverlay) { this.selected.text = e.target.value; fitTextBox(this.selected); this.requestDraw(); }
     });
+    // Enter в поле — завершить ввод (снять фокус), а не отдавать редактору
+    textInp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); textInp.blur(); } });
 
-    // Текстовые поля: передаём изменения в TextOverlay и сохраняем настройки
-    const textInp = p.querySelector('.overlay-panel__text-input');
-    textInp.addEventListener('input', e => {
-      if (this.selected instanceof TextOverlay) { this.selected.text = e.target.value; this.#draw(); }
-    });
-    // Enter в поле текста не должен всплывать до обработчика редактора (там он применяет кроп)
-    textInp.addEventListener('keydown', e => { if (e.key === 'Enter') e.stopPropagation(); });
-
-    p.querySelector('.overlay-panel__text-color').addEventListener('input', e => {
-      if (this.selected instanceof TextOverlay) {
-        this.selected.color = e.target.value; this.#draw();
-        _saveTextSettings(this.#getTextSettings());
-      }
-    });
-    p.querySelector('.overlay-panel__stroke-color').addEventListener('input', e => {
-      if (this.selected instanceof TextOverlay) {
-        this.selected.strokeColor = e.target.value; this.#draw();
-        _saveTextSettings(this.#getTextSettings());
-      }
-    });
-    const swEl  = p.querySelector('.overlay-panel__stroke-width');
-    const swVal = p.querySelector('.overlay-panel__val-stroke');
-    swEl.addEventListener('input', () => {
-      if (this.selected instanceof TextOverlay) {
-        this.selected.strokeWidth = Number(swEl.value);
-        swVal.textContent = swEl.value; this.#draw();
-        _saveTextSettings(this.#getTextSettings());
-      }
-    });
-
-    const fontFamilyEl = p.querySelector('.overlay-panel__font-family');
-    fontFamilyEl.addEventListener('change', () => {
-      if (this.selected instanceof TextOverlay) {
-        this.selected.fontFamily = fontFamilyEl.value; this.#draw();
-        _saveTextSettings(this.#getTextSettings());
-      }
-    });
-
-    const fontSizeEl  = p.querySelector('.overlay-panel__font-size');
-    const fontSizeVal = p.querySelector('.overlay-panel__val-font-size');
-    fontSizeEl.addEventListener('input', () => {
-      if (this.selected instanceof TextOverlay) {
-        this.selected.fontSize = Number(fontSizeEl.value);
-        fontSizeVal.textContent = fontSizeEl.value; this.#draw();
-        _saveTextSettings(this.#getTextSettings());
-      }
-    });
-
-    const fontWeightEl = p.querySelector('.overlay-panel__font-weight');
-    fontWeightEl.addEventListener('change', () => {
-      if (this.selected instanceof TextOverlay) {
-        this.selected.fontWeight = fontWeightEl.checked ? 'bold' : 'normal';
-        this.#draw();
-        _saveTextSettings(this.#getTextSettings());
-      }
-    });
+    q('.overlay-panel__text-color').addEventListener('input',   onText((ov, e) => { ov.color = e.target.value; }));
+    q('.overlay-panel__stroke-color').addEventListener('input', onText((ov, e) => { ov.strokeColor = e.target.value; }));
+    const swEl = q('.overlay-panel__stroke-width'), swVal = q('.overlay-panel__val-stroke');
+    swEl.addEventListener('input', onText((ov) => { ov.strokeWidth = Number(swEl.value); swVal.textContent = swEl.value; }));
+    const ffEl = q('.overlay-panel__font-family');
+    ffEl.addEventListener('change', onText((ov) => { ov.fontFamily = ffEl.value; }));
+    const fsEl = q('.overlay-panel__font-size'), fsVal = q('.overlay-panel__val-font-size');
+    fsEl.addEventListener('input', onText((ov) => { ov.fontSize = Number(fsEl.value); fsVal.textContent = fsEl.value; }));
+    const fwEl = q('.overlay-panel__font-weight');
+    fwEl.addEventListener('change', onText((ov) => { ov.fontWeight = fwEl.checked ? 'bold' : 'normal'; }));
   }
 
-  /** Собирает текущие настройки текста для сохранения в localStorage. */
-  #getTextSettings() {
+  _textSettings() {
     const ov = this.selected;
     if (!(ov instanceof TextOverlay)) return {};
     return {
-      fontFamily:  ov.fontFamily,
-      fontSize:    ov.fontSize,
-      fontWeight:  ov.fontWeight,
-      color:       ov.color,
-      strokeColor: ov.strokeColor,
-      strokeWidth: ov.strokeWidth,
+      fontFamily: ov.fontFamily, fontSize: ov.fontSize, fontWeight: ov.fontWeight,
+      color: ov.color, strokeColor: ov.strokeColor, strokeWidth: ov.strokeWidth,
     };
   }
 
-  #syncPanel() {
-    if (!this.#panel) return;
+  _syncPanel() {
+    const p = this._panel;
+    if (!p) return;
+    const q = (sel) => p.querySelector(sel);
     const ov      = this.selected;
-    const rowSel  = this.#panel.querySelector('.overlay-panel__row--selected');
-    const rowText = this.#panel.querySelector('.overlay-panel__row--text');
-    const delBtn  = this.#panel.querySelector('.overlay-panel__btn-delete');
+    const rowSel  = q('.overlay-panel__row--selected');
+    const rowText = q('.overlay-panel__row--text');
+    const delBtn  = q('.overlay-panel__btn-delete');
 
-    if (!ov) {
-      rowSel.style.display = 'none'; rowText.style.display = 'none';
-      delBtn.disabled = true; return;
-    }
+    if (!ov) { rowSel.style.display = 'none'; rowText.style.display = 'none'; delBtn.disabled = true; return; }
     rowSel.style.display = ''; delBtn.disabled = false;
     const deg = Math.round(ov.rotation * 180 / Math.PI);
-    this.#panel.querySelector('.overlay-panel__opacity').value            = Math.round(ov.opacity * 100);
-    this.#panel.querySelector('.overlay-panel__val-opacity').textContent  = Math.round(ov.opacity * 100);
-    this.#panel.querySelector('.overlay-panel__rotation').value           = deg;
-    this.#panel.querySelector('.overlay-panel__val-rotation').textContent = deg;
-    this.#panel.querySelector('.overlay-panel__lock-aspect').checked      = ov.lockAspect;
+    q('.overlay-panel__opacity').value            = Math.round(ov.opacity * 100);
+    q('.overlay-panel__val-opacity').textContent  = Math.round(ov.opacity * 100);
+    q('.overlay-panel__rotation').value           = deg;
+    q('.overlay-panel__val-rotation').textContent = deg;
+    q('.overlay-panel__lock-aspect').checked      = ov.lockAspect;
 
     const isText = ov instanceof TextOverlay;
     rowText.style.display = isText ? '' : 'none';
-    if (isText) {
-      const inp = this.#panel.querySelector('.overlay-panel__text-input');
-      if (document.activeElement !== inp) inp.value = ov.text;
-      this.#panel.querySelector('.overlay-panel__text-color').value          = ov.color;
-      this.#panel.querySelector('.overlay-panel__stroke-color').value        = ov.strokeColor;
-      this.#panel.querySelector('.overlay-panel__stroke-width').value        = ov.strokeWidth;
-      this.#panel.querySelector('.overlay-panel__val-stroke').textContent    = ov.strokeWidth;
-      this.#panel.querySelector('.overlay-panel__font-family').value         = ov.fontFamily;
-      this.#panel.querySelector('.overlay-panel__font-size').value           = ov.fontSize;
-      this.#panel.querySelector('.overlay-panel__val-font-size').textContent = ov.fontSize;
-      this.#panel.querySelector('.overlay-panel__font-weight').checked       = ov.fontWeight === 'bold';
-    }
+    if (!isText) return;
+    const inp = q('.overlay-panel__text-input');
+    if (document.activeElement !== inp) inp.value = ov.text;
+    q('.overlay-panel__text-color').value          = ov.color;
+    q('.overlay-panel__stroke-color').value        = ov.strokeColor;
+    q('.overlay-panel__stroke-width').value        = ov.strokeWidth;
+    q('.overlay-panel__val-stroke').textContent    = ov.strokeWidth;
+    q('.overlay-panel__font-family').value         = ov.fontFamily;
+    q('.overlay-panel__font-size').value           = ov.fontSize;
+    q('.overlay-panel__val-font-size').textContent = Math.round(ov.fontSize);
+    q('.overlay-panel__font-weight').checked       = ov.fontWeight === 'bold';
   }
 
-  #renderHistoryPanel() {
-    if (!this.#panel) return;
-    const history = this.#loadHistory();
-    const histEl  = this.#panel.querySelector('.overlay-panel__history');
-    const listEl  = this.#panel.querySelector('.overlay-panel__history-list');
-    if (!history.length) { histEl.style.display = 'none'; return; }
-    histEl.style.display = ''; listEl.innerHTML = '';
+  /** Карточка истории/пресета: превью текстов и картинок + подпись. Данные недоверенные. */
+  _buildCard({ title, textItems, imgItems, summary, deleteIndex = null }) {
+    const card = document.createElement('div');
+    card.className = 'overlay-history__card';
+    card.title     = title;
+    card.tabIndex  = 0;
+    card.setAttribute('role', 'button');
+
+    if (deleteIndex !== null) {
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'overlay-history__btn-delete';
+      del.dataset.index = String(deleteIndex);
+      del.title = 'Удалить'; del.setAttribute('aria-label', 'Удалить запись истории');
+      del.innerHTML = '<i class="icon-close" aria-hidden="true"></i>';
+      card.appendChild(del);
+    }
+
+    const previews = document.createElement('div');
+    previews.className = 'overlay-history__previews';
+    for (const t of textItems.slice(0, 2)) {
+      const d = document.createElement('div');
+      d.className   = 'overlay-history__thumb overlay-history__thumb--text';
+      d.style.color = safeCssColor(t.color, '#fff');
+      d.title       = String(t.text ?? '');
+      d.textContent = String(t.text ?? 'T').slice(0, 4) || 'T';
+      previews.appendChild(d);
+    }
+    for (const it of imgItems.slice(0, 2)) {
+      const thumb = document.createElement('div');
+      thumb.className = 'overlay-history__thumb overlay-history__thumb--img';
+      const src = typeof it.src === 'string' ? it.src : null;
+      const fallback = () => {
+        thumb.innerHTML = '<i class="icon-image" style="font-size:1.25em;margin:auto" aria-hidden="true"></i>';
+        thumb.style.cssText += ';display:flex;align-items:center;justify-content:center';
+      };
+      if (src && (src.startsWith('data:image/') || /^(https?:)?\//.test(src))) {
+        const img = document.createElement('img');
+        img.style.cssText = 'width:100%;height:100%;object-fit:cover;border-radius:0.2em';
+        img.alt = ''; img.onerror = () => { img.remove(); fallback(); };
+        img.src = src;
+        thumb.appendChild(img);
+      } else fallback();
+      previews.appendChild(thumb);
+    }
+    if (!textItems.length && !imgItems.length) {
+      previews.innerHTML = '<i class="icon-layers" style="font-size:1.5em;opacity:.6;margin:auto" aria-hidden="true"></i>';
+      previews.style.cssText += ';display:flex;align-items:center;justify-content:center';
+    }
+    card.appendChild(previews);
+
+    const sum = document.createElement('div');
+    sum.className   = 'overlay-history__summary';
+    sum.textContent = summary;
+    card.appendChild(sum);
+    return card;
+  }
+
+  _renderHistoryPanel() {
+    const p = this._panel;
+    if (!p) return;
+    const history = loadHistory();
+    const wrap = p.querySelector('.overlay-panel__history');
+    const list = p.querySelector('.overlay-panel__history-list');
+    list.innerHTML = '';
+    if (!history.length) { wrap.style.display = 'none'; return; }
+    wrap.style.display = '';
 
     history.forEach((entry, idx) => {
-      const textItems = entry.overlays.filter(o => o.type === 'TextOverlay');
-      const imgItems  = entry.overlays.filter(o => o.type === 'ImageOverlay');
-      const summary   = [
-        textItems.length ? `${textItems.length}×Т` : '',
-        imgItems.length  ? `${imgItems.length}×Ф`  : '',
-      ].filter(Boolean).join(' ');
-
-      const card = document.createElement('div');
-      card.className = 'overlay-history__card';
-      card.title     = 'Кликните чтобы применить';
-      card.innerHTML = `
-        <button type="button" class="overlay-history__btn-delete" data-index="${idx}" title="Удалить">
-          <i class="icon-close" aria-hidden="true"></i>
-        </button>
-        <div class="overlay-history__previews">
-          ${textItems.slice(0,2).map(t =>
-            `<div class="overlay-history__thumb overlay-history__thumb--text"
-                  style="color:${t.color}" title="${t.text}">${t.text.slice(0,5)}</div>`
-          ).join('')}
-          ${imgItems.slice(0,2).map(im =>
-            im.srcDataUrl
-              ? `<img class="overlay-history__thumb overlay-history__thumb--img" src="${im.srcDataUrl}" alt="">`
-              : ''
-          ).join('')}
-        </div>
-        <div class="overlay-history__summary">${summary || 'оверлеи'}</div>`;
-      listEl.appendChild(card);
-    });
-
-    // Один делегированный обработчик на весь список
-    listEl.addEventListener('click', e => {
-      const delBtn = e.target.closest('.overlay-history__btn-delete');
-      if (delBtn) {
-        e.stopPropagation();
-        this.#deleteHistoryEntry(Number(delBtn.dataset.index));
-        return;
-      }
-      const card = e.target.closest('.overlay-history__card');
-      if (card) {
-        const idx = Array.from(listEl.children).indexOf(card);
-        if (idx >= 0 && history[idx]) this.#applyHistoryEntry(history[idx]);
-      }
+      const items     = Array.isArray(entry?.overlays) ? entry.overlays.filter(o => o && typeof o === 'object') : [];
+      const textItems = items.filter(o => o.type === 'TextOverlay');
+      const imgItems  = items.filter(o => o.type === 'ImageOverlay').map(o => ({ src: o.srcDataUrl }));
+      const summary   = [textItems.length ? `${textItems.length}×Т` : '', imgItems.length ? `${imgItems.length}×Ф` : '']
+        .filter(Boolean).join(' ') || 'оверлеи';
+      const card = this._buildCard({ title: 'Кликните, чтобы применить набор', textItems, imgItems, summary, deleteIndex: idx });
+      card.dataset.index = String(idx);
+      list.appendChild(card);
     });
   }
 
-  /**
-   * Рендерит секцию пресетов из EditorConfig.overlay.presets.
-   * Пресеты задаются в конфиге проекта; пользователь их не редактирует.
-   * Клик по карточке — немедленное добавление пресета к текущим оверлеям.
-   */
-  #renderPresetsPanel() {
-    if (!this.#panel) return;
+  /** Один делегированный обработчик на список истории (навешивается в buildPanel). */
+  _bindHistoryList(panel) {
+    const listEl = panel.querySelector('.overlay-panel__history-list');
+    const activate = (target) => {
+      const delBtn = target.closest('.overlay-history__btn-delete');
+      if (delBtn) { this._deleteHistoryEntry(Number(delBtn.dataset.index)); return; }
+      const card = target.closest('.overlay-history__card');
+      if (!card) return;
+      const entry = loadHistory()[Number(card.dataset.index)];
+      if (entry) this._applyHistoryEntry(entry);
+    };
+    listEl.addEventListener('click', (e) => activate(e.target));
+    listEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate(e.target); }
+    });
+
+    const presetsEl = panel.querySelector('.overlay-panel__presets-list');
+    const activatePreset = (target) => {
+      const card = target.closest('.overlay-history__card');
+      const preset = card && EditorConfig.overlay.presets?.[Number(card.dataset.index)];
+      if (preset) this._applyPreset(preset);
+    };
+    presetsEl.addEventListener('click', (e) => activatePreset(e.target));
+    presetsEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activatePreset(e.target); }
+    });
+  }
+
+  /** Пресеты из EditorConfig.overlay.presets (конфиг проекта, не редактируются). */
+  _renderPresetsPanel() {
+    const p = this._panel;
+    if (!p) return;
     const presets = EditorConfig.overlay.presets;
-    const wrap    = this.#panel.querySelector('.overlay-panel__presets');
-    const listEl  = this.#panel.querySelector('.overlay-panel__presets-list');
-    if (!listEl) return;
+    const wrap = p.querySelector('.overlay-panel__presets');
+    const list = p.querySelector('.overlay-panel__presets-list');
+    list.innerHTML = '';
     if (!presets?.length) { wrap.style.display = 'none'; return; }
-
-    wrap.style.display = ''; listEl.innerHTML = '';
-
+    wrap.style.display = '';
     presets.forEach((preset, idx) => {
-      const card = document.createElement('div');
-      card.className = 'overlay-history__card';
-      card.title     = preset.label || `Пресет ${idx + 1}`;
-
-      const textItems = preset.items.filter(it => it.type === 'text');
-      const imgItems  = preset.items.filter(it => it.type === 'image');
-
-      const previewsEl = document.createElement('div');
-      previewsEl.className = 'overlay-history__previews';
-
-      textItems.slice(0, 2).forEach(t => {
-        const d = document.createElement('div');
-        d.className   = 'overlay-history__thumb overlay-history__thumb--text';
-        d.style.color = t.color || '#fff';
-        d.title       = t.text || '';
-        d.textContent = (t.text || 'T').slice(0, 4);
-        previewsEl.appendChild(d);
+      const items = Array.isArray(preset.items) ? preset.items : [];
+      const title = preset.label || `Пресет ${idx + 1}`;
+      const card  = this._buildCard({
+        title, summary: title,
+        textItems: items.filter(it => it.type === 'text'),
+        imgItems:  items.filter(it => it.type === 'image'),
       });
-
-      imgItems.slice(0, 2).forEach(it => {
-        const thumb = document.createElement('div');
-        thumb.className = 'overlay-history__thumb overlay-history__thumb--img';
-        if (it.src) {
-          const img = document.createElement('img');
-          img.style.cssText = 'width:100%;height:100%;object-fit:cover;border-radius:0.2em';
-          img.src = it.src; img.alt = '';
-          img.onerror = () => {
-            img.remove();
-            thumb.innerHTML = '<i class="icon-image" style="font-size:1.25em;margin:auto"></i>';
-            thumb.style.cssText += ';display:flex;align-items:center;justify-content:center';
-          };
-          thumb.appendChild(img);
-        } else {
-          thumb.innerHTML = '<i class="icon-image" style="font-size:1.25em;margin:auto"></i>';
-          thumb.style.cssText += ';display:flex;align-items:center;justify-content:center';
-        }
-        previewsEl.appendChild(thumb);
-      });
-
-      if (!textItems.length && !imgItems.length) {
-        const ic = document.createElement('i');
-        ic.className   = 'icon-layers';
-        ic.style.cssText = 'font-size:1.5em;opacity:.6;margin:auto';
-        previewsEl.style.cssText += ';display:flex;align-items:center;justify-content:center';
-        previewsEl.appendChild(ic);
-      }
-
-      const summary = document.createElement('div');
-      summary.className   = 'overlay-history__summary';
-      summary.textContent = card.title;
-
-      card.appendChild(previewsEl);
-      card.appendChild(summary);
-      card.addEventListener('click', () => this.#applyPreset(preset));
-      listEl.appendChild(card);
+      card.dataset.index = String(idx);
+      list.appendChild(card);
     });
   }
 
-  /**
-   * Добавляет оверлеи пресета к текущим (не очищает существующие).
-   * Координаты задаются в процентах (0..1) от размера canvas.
-   *
-   * @param {{ items: object[], label?: string }} preset
-   */
-  async #applyPreset(preset) {
-    if (!preset?.items) return;
-    const cw = this.overlayCanvas?.width  || 400;
-    const ch = this.overlayCanvas?.height || 300;
+  /** Добавляет оверлеи пресета к текущим. Координаты — доли (0..1) от размера области. */
+  async _applyPreset(preset) {
+    if (!preset?.items || this._applyingEntry) return;
+    this._applyingEntry = true;
+    const cw = this.viewW || 400, ch = this.viewH || 300;
+    try {
+      for (const item of preset.items) {
+        const w = Math.round((item.wPct || 0.25) * cw);
+        const h = item.hPct ? Math.round(item.hPct * ch) : null;
+        const x = item.xPct != null ? Math.round(item.xPct * cw - w / 2) : Math.round((cw - w) / 2);
+        const y = item.yPct != null ? Math.round(item.yPct * ch - (h || w) / 2) : Math.round((ch - (h || w)) / 2);
+        const opacity = item.opacity ?? 1;
 
-    for (const item of preset.items) {
-      const w = Math.round((item.wPct || 0.25) * cw);
-      const h = item.hPct ? Math.round(item.hPct * ch) : null;
-      const x = item.xPct != null ? Math.round(item.xPct * cw - w / 2) : Math.round((cw - w) / 2);
-      const y = item.yPct != null ? Math.round(item.yPct * ch - (h || w) / 2) : Math.round((ch - (h || w)) / 2);
-      const opacity = item.opacity ?? 1;
-
-      if (item.type === 'text') {
-        this.addTextOverlay({
-          text:        item.text        || 'Текст',
-          fontFamily:  item.fontFamily  || 'sans-serif',
-          fontSize:    item.fontSize    || 48,
-          fontWeight:  item.fontWeight  || 'normal',
-          color:       item.color       || '#ffffff',
-          strokeColor: item.strokeColor || '#000000',
-          strokeWidth: item.strokeWidth ?? 2,
-          x, y, width: w, height: h || Math.round(w * 0.3), opacity,
-        });
-      } else if (item.type === 'image' && item.src) {
-        await new Promise(resolve => {
-          const img = new Image(); img.crossOrigin = 'anonymous';
-          img.onload = () => {
-            const aspect = img.naturalHeight / (img.naturalWidth || 1);
-            const oh     = h || Math.round(w * aspect);
+        if (item.type === 'text') {
+          this.addTextOverlay({
+            text: item.text || 'Текст', fontFamily: item.fontFamily || 'sans-serif',
+            fontSize: item.fontSize || 48, fontWeight: item.fontWeight || 'normal',
+            color: item.color || '#ffffff', strokeColor: item.strokeColor || '#000000',
+            strokeWidth: item.strokeWidth ?? 2,
+            x, y, width: w, height: h || Math.round(w * 0.3), opacity,
+          });
+        } else if (item.type === 'image' && item.src) {
+          try {
+            const img = await loadOverlayImage(item.src);
+            if (!this.isActive) return;
+            const oh = h || Math.round(w * (img.naturalHeight / (img.naturalWidth || 1)));
             this.addImageOverlay(img, { srcDataUrl: item.src, x, y, width: w, height: oh, opacity });
-            resolve();
-          };
-          img.onerror = resolve; // не блокируем при ошибке загрузки
-          img.src = item.src;
-        });
+          } catch (err) { console.warn('[OverlayTool] пресет:', err.message); }
+        }
       }
+    } finally {
+      this._applyingEntry = false;
     }
-
-    this.#draw();
-    this.#syncPanel();
+    this._syncPanel(); this.requestDraw();
   }
 }

@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.tmp-*
+test-results/
+playwright-report/
+coverage/
+*.log
+.idea/
+.vscode/
+.DS_Store
+photoeditor.7z
+photoeditor.tar.gz

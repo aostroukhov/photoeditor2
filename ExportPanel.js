@@ -50,26 +50,8 @@ export class ExportPanel {
    * Читает сохранённое качество из localStorage.
    * Если значение отсутствует или невалидно — возвращает дефолт из EditorConfig.
    */
-  static #loadQuality() {
-    try {
-      const v = localStorage.getItem(EditorConfig.export.qualityStorageKey);
-      return v !== null
-        ? Math.max(1, Math.min(100, Number(v)))
-        : EditorConfig.export.defaultJpegQuality;
-    } catch {
-      return EditorConfig.export.defaultJpegQuality;
-    }
-  }
-
-  /**
-   * Сохраняет выбранное качество в localStorage.
-   * Ошибки игнорируются — localStorage может быть отключён (private browsing).
-   */
-  static #saveQuality(v) {
-    try {
-      localStorage.setItem(EditorConfig.export.qualityStorageKey, String(v));
-    } catch {}
-  }
+  static #loadQuality()  { return EditorConfig.loadExportQuality(); }
+  static #saveQuality(v) { EditorConfig.saveExportQuality(v); }
 
 
   // ── Публичный API ───────────────────────────────────────────────────────────
@@ -86,15 +68,10 @@ export class ExportPanel {
         <span class="pe-panel__title">Экспорт</span>
       </div>
       <div class="pe-panel__row">
-        <button type="button" class="pe-panel__action-btn" data-action="copy-jpg"
-                title="Скопировать JPG в буфер обмена">
+        <button type="button" class="pe-panel__action-btn" data-action="copy"
+                title="Скопировать в буфер обмена (PNG — единственный формат, который принимает Clipboard API)">
           <i class="pe-panel__action-btn-icon icon-paste" aria-hidden="true"></i>
-          <span class="pe-panel__action-btn-text">JPG</span>
-        </button>
-        <button type="button" class="pe-panel__action-btn" data-action="copy-png"
-                title="Скопировать PNG в буфер обмена">
-          <i class="pe-panel__action-btn-icon icon-paste" aria-hidden="true"></i>
-          <span class="pe-panel__action-btn-text">PNG</span>
+          <span class="pe-panel__action-btn-text">Буфер</span>
         </button>
         <button type="button" class="pe-panel__action-btn" data-action="save-jpg"
                 title="Скачать как JPG">
@@ -152,30 +129,6 @@ export class ExportPanel {
   // ── Приватная логика экспорта ───────────────────────────────────────────────
 
   /**
-   * Получает итоговый canvas для экспорта.
-   *
-   * Если в OverlayTool есть незакоммиченные оверлеи — рендерит через него,
-   * чтобы они попали в экспорт до вызова apply().
-   * Иначе рисует pe.img на чистый canvas.
-   *
-   * @returns {HTMLCanvasElement}
-   * @throws {Error} Если pe.img не задан.
-   */
-  #getResultCanvas() {
-    const pe = this.photoEditor;
-    if (!pe.img) throw new Error('Нет изображения для экспорта');
-
-    const ovTool = pe.tools?.overlay;
-    if (ovTool && ovTool.overlays.length > 0) return ovTool.renderToCanvas();
-
-    const canvas = document.createElement('canvas');
-    canvas.width  = pe.img.naturalWidth;
-    canvas.height = pe.img.naturalHeight;
-    canvas.getContext('2d').drawImage(pe.img, 0, 0);
-    return canvas;
-  }
-
-  /**
    * Строит имя файла для скачивания.
    * Приоритет: originalFileName редактора (с заменой расширения).
    * Фоллбэк: «YYYY-MM-DD_HH-MM.ext».
@@ -194,7 +147,7 @@ export class ExportPanel {
    * Обрабатывает клик по кнопке экспорта.
    * Блокирует все кнопки на время операции, показывает статус-сообщение.
    *
-   * @param {'copy-jpg'|'copy-png'|'save-jpg'|'save-png'} action
+   * @param {'copy'|'save-jpg'|'save-png'} action
    * @param {HTMLElement} el  Корневой элемент панели (содержит .pe-panel__status).
    */
   async #handleAction(action, el) {
@@ -217,7 +170,7 @@ export class ExportPanel {
 
     let canvas;
     try {
-      canvas = this.#getResultCanvas();
+      canvas = this.photoEditor.getResultCanvas();
     } catch (e) {
       setStatus('Ошибка: ' + e.message, true);
       unlock();
@@ -227,15 +180,9 @@ export class ExportPanel {
     const q = this.#quality / 100;
     try {
       switch (action) {
-        case 'copy-jpg':
-          await this.#copyToClipboard(canvas, 'image/jpeg', q);
-          setStatus('✓ JPG скопирован в буфер');
-          this.photoEditor.notifyExportDone();
-          break;
-
-        case 'copy-png':
-          await this.#copyToClipboard(canvas, 'image/png', 1);
-          setStatus('✓ PNG скопирован в буфер');
+        case 'copy':
+          await this.#copyToClipboard(canvas);
+          setStatus('✓ Скопировано в буфер (PNG)');
           this.photoEditor.notifyExportDone();
           break;
 
@@ -267,16 +214,16 @@ export class ExportPanel {
   /**
    * Копирует canvas в буфер обмена как PNG.
    *
-   * Clipboard API принимает только PNG — JPEG не поддерживается.
+   * Clipboard API принимает только PNG — JPEG не поддерживается, поэтому
+   * в панели одна кнопка «Буфер» (раньше были «JPG» и «PNG», и обе копировали PNG).
    * Требует HTTPS и разрешения clipboard-write.
    *
    * @throws {Error} Если Clipboard API недоступен (HTTP / Safari без флагов).
    */
-  async #copyToClipboard(canvas, _mime, _quality) {
+  async #copyToClipboard(canvas) {
     if (!navigator.clipboard?.write) {
       throw new Error('Clipboard API недоступен — нужен HTTPS');
     }
-    // Буфер обмена принимает только PNG независимо от запрошенного формата
     const blob = await this.#toBlob(canvas, 'image/png', 1);
     await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
   }

@@ -9,7 +9,7 @@
 export const EditorConfig = {
 
   // ── Версия редактора ───────────────────────────────────────────────────────
-  VERSION: '3.6',
+  VERSION: '3.7',
 
   // ── Настройки редактора ───────────────────────────────────────────────────
   editor: {
@@ -118,8 +118,11 @@ export const EditorConfig = {
   history: {
     /** Максимум снапшотов на сессию. При превышении — удаляется самый старый. */
     maxStates: 20,
-    /** Качество WebP снапшота (0..1). 0.88 = хороший баланс качество/размер. */
-    snapshotQuality: 0.88,
+    /**
+     * Через сколько мс записи чужих сессий считаются брошенными и удаляются
+     * при следующем открытии редактора (вкладка закрылась без destroy()).
+     */
+    staleSessionMaxAgeMs: 24 * 60 * 60 * 1000,
   },
 
   // ── Настройки CropTool ────────────────────────────────────────────────────
@@ -280,14 +283,24 @@ export const EditorConfig = {
   // ── Вспомогательные методы ────────────────────────────────────────────────
 
   /**
-   * Формирует имя файла для сохранения.
-   * Приоритет: оригинальное имя → дата/время.
-   *
-   * @param {string|null} originalName  — исходное имя файла (из File.name или
-   *                                      сохранённое в photoEditor.originalFileName)
-   * @param {'jpeg'|'png'|'webp'} format
-   * @returns {string}
+   * Читает сохранённое пользователем качество JPEG (1–100) из localStorage.
+   * Используется ExportPanel и FileInput, чтобы оба пути экспорта давали
+   * одинаковый результат. Невалидное значение → дефолт.
+   * @returns {number}
    */
+  loadExportQuality() {
+    try {
+      const v = Number(localStorage.getItem(this.export.qualityStorageKey));
+      if (Number.isFinite(v) && v >= 1 && v <= 100) return Math.round(v);
+    } catch { /* localStorage недоступен */ }
+    return this.export.defaultJpegQuality;
+  },
+
+  /** Сохраняет качество JPEG (1–100). Ошибки localStorage игнорируются. */
+  saveExportQuality(v) {
+    try { localStorage.setItem(this.export.qualityStorageKey, String(v)); } catch { /* ignore */ }
+  },
+
   /**
    * Очищает все сохранённые данные фоторедактора из localStorage.
    * Вызывается из диалога «О редакторе» → кнопка «Сбросить настройки».
@@ -308,6 +321,15 @@ export const EditorConfig = {
     return cleared;
   },
 
+  /**
+   * Формирует имя файла для сохранения.
+   * Приоритет: оригинальное имя → дата/время.
+   *
+   * @param {string|null} originalName  — исходное имя файла (из File.name или
+   *                                      сохранённое в photoEditor.originalFileName)
+   * @param {'jpeg'|'png'|'webp'} format
+   * @returns {string}
+   */
   buildExportFileName(originalName, format) {
     const extMap = { jpeg: 'jpg', jpg: 'jpg', png: 'png', webp: 'webp' };
     const ext = extMap[format] ?? format;

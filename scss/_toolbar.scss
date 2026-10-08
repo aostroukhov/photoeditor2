@@ -1,4 +1,6 @@
 // ─── Тулбар — iOS-стиль ───────────────────────────────────────────────────────
+@use 'variables' as *;
+@use 'mixins' as *;
 // BEM: .pe-toolbar / .pe-toolbar__group / .pe-toolbar__btn / .pe-toolbar__btn--*
 // .pe-icon — иконка через CSS-шрифт oinfo
 
@@ -13,7 +15,7 @@
   padding-bottom: env(safe-area-inset-bottom, 0);
   position: fixed;
   right: 0;
-  z-index: 30;
+  z-index: $z-toolbar;
 
   // ── Группы ──────────────────────────────────────────────────────────────
   &__group {
@@ -63,6 +65,13 @@
       color: var(--pe-accent);
 
       .pe-icon { color: var(--pe-accent); }
+    }
+
+    // Приостановленный инструмент (есть несохранённое состояние: рамка, наброски)
+    &.is-suspended {
+      color: hsla(0,0%,100%,.85);
+
+      .pe-icon { color: var(--pe-accent); opacity: .6; }
     }
 
     // Кнопка «Закрыть»

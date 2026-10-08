@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PhotoEditor e2e fixture</title>
+  <link rel="stylesheet" href="/layout.css">
+  <style>html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }</style>
+</head>
+<body>
+  <input type="file" id="fileInput" accept="image/*" style="position:absolute;left:-9999px">
+  <script type="module">
+    import { PhotoEditor } from '/PhotoEditor.js';
+
+    const params = new URLSearchParams(location.search);
+    const bind   = params.get('bind') === '1';   // режим src/target через <input type=file>
+
+    function makeCanvas(w = 800, h = 600) {
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = '#3c8fe0'; ctx.fillRect(100, 100, 300, 200);
+      ctx.fillStyle = '#e53935'; ctx.beginPath(); ctx.arc(600, 400, 120, 0, Math.PI * 2); ctx.fill();
+      return c;
+    }
+
+    const editor = new PhotoEditor({ showImport: true, showExport: true });
+    window.editor = editor;
+    window.exportCalls = [];
+
+    if (bind) {
+      editor.bindToFileInput(document.getElementById('fileInput'));
+      const orig = editor.export;
+      editor.export = (canvas) => { window.exportCalls.push(canvas.width + 'x' + canvas.height); return orig(canvas); };
+    }
+
+    editor.afterOpen = () => { window.editorReady = true; };
+    editor.afterClose = () => { window.editorClosed = true; };
+
+    editor.setImage(makeCanvas().toDataURL('image/png')).then(() => editor.open());
+  </script>
+</body>
+</html>

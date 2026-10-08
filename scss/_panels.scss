@@ -1,4 +1,7 @@
 // ─── Панели (диалоги инструментов) ────────────────────────────────────────────
+@use 'variables' as *;
+@use 'mixins' as *;
+@use 'plugins' as *;
 // Все диалоги используют единый базовый стиль .pe-panel
 // BEM: .pe-panel / .pe-panel__* — общая база
 // Конкретные панели: .pe-panel--export, .pe-panel--import, .pe-panel--crop,
@@ -21,7 +24,7 @@
   gap: $panel-gap;
   padding: $panel-pad-v $panel-pad-h;
   position: absolute;
-  z-index: $panel-z;
+  z-index: $z-panel;
 
   // Все скрытые панели
   &[hidden],
@@ -51,6 +54,14 @@
     display: flex;
     gap: 0.25em;
     margin-left: auto;
+  }
+
+  // Заголовок + дополнительные элементы слева (ToolBase.panelHeader({ left }))
+  &__header-left {
+    align-items: center;
+    display: flex;
+    gap: 0.5em;
+    min-width: 0;
   }
 
   // Единообразная кнопка закрытия панели
@@ -160,15 +171,7 @@
 // margin: auto надёжнее чем left:50%+transform внутри position:fixed контейнера
 // ── Панель Кроп — один горизонтальный тулбар, как overlay/draw ───────────────
 .pe-panel--crop {
-  border-radius: 0;
-  border-top: 1px solid var(--pe-border);
-  border-left: none;
-  border-right: none;
-  border-bottom: none;
-  bottom: var(--pe-toolbar-h);
-  left: 0;
-  right: 0;
-  padding: 0;   // нет внутренних отступов — тулбар сам управляет высотой
+  @include plugin-panel-fullwidth($padding: 0, $side-margins: false);
 
   // Один горизонтальный ряд
   .pe-panel__crop-toolbar {
@@ -248,7 +251,7 @@
     font-family: inherit;
     font-size: 0.625em;
     font-weight: 600;
-    height: 1.75em / 0.625em * 1em; // выравниваем высоту
+    height: 2.8em; // 1.75em / 0.625em — выравниваем высоту
     padding: 0 0.625em;
     transition: background $pe-transition, color $pe-transition, border-color $pe-transition;
     white-space: nowrap;
@@ -273,19 +276,7 @@
 
 // ── Панель Оверлей ───────────────────────────────────────────────────────────
 .pe-panel--overlay {
-  border-radius: 0;
-  border-top: 1px solid var(--pe-border);
-  border-left: none;
-  border-right: none;
-  border-bottom: none;
-  bottom: var(--pe-toolbar-h);
-  left: 0;
-  right: 0;
-  padding: 0.5em 0.75em 0.625em;
-
-  @media (min-width: 30em) { // 480px
-    margin: 0 13.75em;  // отступы под панели импорт/экспорт
-  }
+  @include plugin-panel-fullwidth($padding: 0.5em 0.75em 0.625em, $side-margins: true);
 
   // Кнопки «+Текст» / «+Фото» слева в шапке
   .overlay-panel__add-btns {
@@ -545,19 +536,7 @@
 
 // ── Панель DrawTool ───────────────────────────────────────────────────────────
 .pe-panel--draw {
-  border-radius: 0;
-  border-top: 1px solid var(--pe-border);
-  border-left: none;
-  border-right: none;
-  border-bottom: none;
-  bottom: var(--pe-toolbar-h);
-  left: 0;
-  right: 0;
-  padding: 0.5em 0.75em 0.625em;
-
-  @media (min-width: 30em) {
-    margin: 0 13.75em;
-  }
+  @include plugin-panel-fullwidth($padding: 0.5em 0.75em 0.625em, $side-margins: true);
 
   .draw-panel {
     &__row {
@@ -703,7 +682,7 @@
     top: 0.2em;
     transition: opacity $pe-transition, color $pe-transition, background $pe-transition;
     width: 1.4em;
-    z-index: 2;
+    z-index: $z-img-info;
 
     i { font-size: 1em; }
   }
@@ -804,19 +783,7 @@
 
 // ── Панель MaskTool ───────────────────────────────────────────────────────────
 .pe-panel--mask {
-  border-radius: 0;
-  border-top: 1px solid var(--pe-border);
-  border-left: none;
-  border-right: none;
-  border-bottom: none;
-  bottom: var(--pe-toolbar-h);
-  left: 0;
-  right: 0;
-  padding: 0.625em 0.75em 0.75em;
-
-  @media (min-width: 30em) {
-    margin: 0 13.75em;
-  }
+  @include plugin-panel-fullwidth($padding: 0.625em 0.75em 0.75em, $side-margins: true);
 
   .mask-panel {
     &__row {
@@ -1008,19 +975,7 @@
   }
 }
 .pe-panel--adjust {
-  border-radius: 0;
-  border-top: 1px solid var(--pe-border);
-  border-left: none;
-  border-right: none;
-  border-bottom: none;
-  bottom: var(--pe-toolbar-h);
-  left: 0;
-  right: 0;
-  padding: 0.5em 0.75em 0.6em;
-
-  @media (min-width: 30em) {
-    margin: 0 13.75em;
-  }
+  @include plugin-panel-fullwidth($padding: 0.5em 0.75em 0.6em, $side-margins: true);
 
   .adj-panel {
 
@@ -1226,7 +1181,7 @@
 .pe-close-confirm-overlay {
   position: absolute;
   inset: 0;
-  z-index: 1000;
+  z-index: $z-dialog;
   background: rgba(0, 0, 0, .55);
   display: flex;
   align-items: center;

@@ -4,7 +4,11 @@
  * ──────────────────────────────────────────────────────────────────────────────
  * Хранилище: IndexedDB (база pe_history, объект states)
  *
- *  Запись: { sessionId, pos, blob (WebP), size, ts }
+ *  Запись: { sessionId, pos, blob (PNG — без потерь), size, ts }
+ *
+ *  Снапшоты хранятся без потерь: undo возвращает ровно те пиксели, что были.
+ *  Раньше использовался lossy WebP — каждый undo подменял изображение
+ *  пережатой копией, и дальнейшие правки шли поверх неё.
  *
  *  • Сессия — уникальный ID при каждом открытии редактора.
  *    При закрытии все записи сессии удаляются.
@@ -18,9 +22,9 @@
  *    истории и повторяем запись.
  *
  * Публичный API:
- *  await hm.push(canvas)          — сохранить снапшот (после apply)
- *  await hm.undo()  → ImageData   — вернуться назад
- *  await hm.redo()  → ImageData   — вернуться вперёд
+ *  await hm.push(blobOrCanvas)    — сохранить снапшот (после apply)
+ *  await hm.undo()  → Blob|null   — вернуться назад
+ *  await hm.redo()  → Blob|null   — вернуться вперёд
  *  hm.canUndo / hm.canRedo        — boolean
  *  hm.depth                       — число доступных шагов назад
  *  hm.total                       — всего снапшотов в истории
@@ -30,11 +34,13 @@
  */
 
 import { EditorConfig } from './EditorConfig.js';
+import { canvasToBlob } from './canvasUtils.js';
 
 const CFG       = EditorConfig.history;
 const DB_NAME   = 'pe_history';
 const DB_VER    = 1;
 const STORE     = 'states';
+const SNAPSHOT_TYPE = 'image/png';
 
 // ─── IndexedDB helpers ────────────────────────────────────────────────────────
 
@@ -83,18 +89,35 @@ function dbGetAll(store, query) {
   });
 }
 
-function dbGetAllKeys(store, query) {
-  return new Promise((res, rej) => {
-    const r = query ? store.index('session').getAllKeys(query) : store.getAllKeys();
-    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
-  });
-}
 
 /**
  * Удаляет все записи с данным sessionId в одной транзакции через курсор.
  * Cursor-подход обязателен: несколько await в одной транзакции вызывают
  * её автозавершение между запросами, после чего store становится недоступен.
  */
+/**
+ * Удаляет записи ДРУГИХ сессий старше maxAgeMs — хвосты от вкладок, закрытых
+ * аварийно (destroy() не успел выполниться). Иначе база растёт бесконечно.
+ */
+function purgeStaleSessions(db, currentSessionId, maxAgeMs) {
+  return new Promise((resolve) => {
+    const threshold = Date.now() - maxAgeMs;
+    const t     = db.transaction(STORE, 'readwrite');
+    const store = t.objectStore(STORE);
+    const req   = store.openCursor();
+    req.onsuccess = (e) => {
+      const cursor = e.target.result;
+      if (!cursor) return;
+      const r = cursor.value;
+      if (r.sessionId !== currentSessionId && (r.ts ?? 0) < threshold) cursor.delete();
+      cursor.continue();
+    };
+    t.oncomplete = () => resolve();
+    t.onerror    = () => resolve();   // чистка best-effort: ошибка не должна ломать историю
+    t.onabort    = () => resolve();
+  });
+}
+
 function clearSession(db, sessionId) {
   return new Promise((resolve, reject) => {
     const t     = db.transaction(STORE, 'readwrite');
@@ -110,104 +133,6 @@ function clearSession(db, sessionId) {
   });
 }
 
-/**
- * Конвертирует canvas → Blob.
- *
- * Пробует WebP (компактный), fallback на PNG (универсальный).
- * Использует OffscreenCanvas если доступен — не блокирует main thread.
- */
-async function canvasToBlob(canvas, quality = CFG.snapshotQuality) {
-  // OffscreenCanvas.convertToBlob — async, не блокирует главный поток
-  if (typeof OffscreenCanvas !== 'undefined' && canvas instanceof OffscreenCanvas) {
-    const b = await canvas.convertToBlob({ type: 'image/webp', quality });
-    if (b && b.size > 0) return b;
-    return canvas.convertToBlob({ type: 'image/png' });
-  }
-
-  // Обычный canvas.toBlob — async callback
-  const tryBlob = (type, q) => new Promise(res => canvas.toBlob(b => res(b), type, q));
-
-  const webp = await tryBlob('image/webp', quality);
-  if (webp && webp.size > 0 && webp.type === 'image/webp') return webp;
-
-  const png = await tryBlob('image/png');
-  if (png && png.size > 0) return png;
-
-  throw new Error('canvasToBlob: browser returned null/empty blob');
-}
-
-/**
- * Blob → HTMLImageElement с data URL в src.
- *
- * Алгоритм:
- *   1. createObjectURL → временный blob URL для быстрой декодировки.
- *   2. После onload — URL отзывается, изображение переносится на canvas.
- *   3. canvas.toDataURL → data URL.
- *   4. Новый Image загружается из data URL и возвращается из промиса.
- *
- * Почему data URL, а не blob URL в img.src:
- *   Chrome не кеширует декодированные пиксели после revokeObjectURL и при
- *   следующем обращении к img.src пытается перечитать blob — который уже
- *   уничтожен → ERR_FILE_NOT_FOUND. Firefox более толерантен, поэтому баг
- *   проявлялся только в Chrome. Data URL не требует сетевого запроса и
- *   безопасен после любого GC.
- *
- * Требования к CSP: img-src blob: data: (blob: нужен только временно,
- * в DOM элементе никогда не оседает).
- */
-async function blobToImage(blob) {
-  if (!blob || blob.size === 0)
-    throw new Error(`blobToImage: invalid blob (size=${blob?.size}, type=${blob?.type})`);
-
-  // Аппаратное декодирование вне main thread — прогрев декодера
-  const bitmapPromise = typeof createImageBitmap !== 'undefined'
-    ? createImageBitmap(blob).catch(() => null)
-    : Promise.resolve(null);
-
-  const url    = URL.createObjectURL(blob);
-  const bitmap = await bitmapPromise;
-
-  // Шаг 1: декодируем blob в HTMLImageElement через временный blob URL
-  const decoded = await new Promise((res, rej) => {
-    const img   = new Image();
-    img.onload  = () => res(img);
-    img.onerror = () => rej(new Error(`blobToImage: decode failed (type=${blob.type}, size=${blob.size})`));
-    img.src = url;
-  });
-
-  // Blob URL больше не нужен — отзываем немедленно после декодировки
-  URL.revokeObjectURL(url);
-
-  // Шаг 2: переносим пиксели на canvas.
-  // Используем ImageBitmap если он готов — рисование без блокировки main thread.
-  const w  = decoded.naturalWidth;
-  const h  = decoded.naturalHeight;
-  const cv = document.createElement('canvas');
-  cv.width = w; cv.height = h;
-  const ctx = cv.getContext('2d');
-  if (bitmap) {
-    ctx.drawImage(bitmap, 0, 0);
-    bitmap.close();
-  } else {
-    ctx.drawImage(decoded, 0, 0);
-  }
-
-  // Шаг 3: canvas → data URL (WebP где поддерживается, иначе PNG)
-  const tryDataUrl = (type, q) => {
-    const u = cv.toDataURL(type, q);
-    // Некоторые браузеры возвращают image/png при неподдерживаемом типе
-    return u.startsWith(`data:${type}`) ? u : null;
-  };
-  const dataUrl = tryDataUrl('image/webp', CFG.snapshotQuality) ?? cv.toDataURL('image/png');
-
-  // Шаг 4: возвращаем Image с data URL — стабильный src без blob-зависимостей
-  return new Promise((res, rej) => {
-    const img2   = new Image();
-    img2.onload  = () => res(img2);
-    img2.onerror = () => rej(new Error('blobToImage: data URL re-encode failed'));
-    img2.src = dataUrl;
-  });
-}
 
 // ─── HistoryManager ───────────────────────────────────────────────────────────
 
@@ -220,7 +145,7 @@ export class HistoryManager {
     this._index      = [];         // [{id, pos, size}] — загруженный индекс сессии
     this._totalSize  = 0;          // суммарный размер в байтах
     this._listeners  = [];
-    this._pushing    = false;      // мьютекс для push
+    this._queue      = Promise.resolve(); // последовательная очередь push()
     this._destroyed  = false;      // флаг уничтожения — блокирует любые операции
     this._dbPromise  = this._init();
   }
@@ -231,6 +156,7 @@ export class HistoryManager {
     try {
       this._db      = await openDB();
       this._dbReady = true;
+      await purgeStaleSessions(this._db, this._sessionId, CFG.staleSessionMaxAgeMs);
       await this._loadIndex();
     } catch (err) {
       console.warn('[HistoryManager] IndexedDB недоступен, история отключена:', err);
@@ -260,9 +186,10 @@ export class HistoryManager {
   get maxStates(){ return CFG.maxStates; }
 
   onUpdate(cb)   { this._listeners.push(cb); return () => { this._listeners = this._listeners.filter(l => l !== cb); }; }
-  _notify()      { for (const l of this._listeners) { try { l(this._snapshot()); } catch {} } }
+  _notify()      { for (const l of this._listeners) { try { l(this.snapshot()); } catch {} } }
 
-  _snapshot() {
+  /** Текущее состояние истории для UI (кнопки undo/redo, бейдж). */
+  snapshot() {
     return {
       canUndo:    this.canUndo,
       canRedo:    this.canRedo,
@@ -276,22 +203,29 @@ export class HistoryManager {
 
   /**
    * Сохраняет снапшот после apply().
-   * @param {HTMLCanvasElement} canvas
+   *
+   * Вызовы выполняются строго последовательно через очередь промисов:
+   * два быстрых commitImage() дают два состояния. Раньше стоял мьютекс,
+   * который молча отбрасывал конкурентный push — состояние терялось.
+   *
+   * @param {Blob|HTMLCanvasElement|OffscreenCanvas} source  Готовый blob (предпочтительно —
+   *        без повторного кодирования) или canvas, который будет закодирован в PNG.
+   * @returns {Promise<void>}
    */
-  async push(canvas) {
-    if (this._destroyed) return;  // быстрый выход до await
-    await this._ready();
-    if (!this._dbReady || !this._db) return; // уже уничтожен
-    if (this._pushing) return;
-    this._pushing = true;
-    try {
-      await this._pushInternal(canvas);
-    } finally {
-      this._pushing = false;
-    }
+  push(source) {
+    if (this._destroyed) return Promise.resolve();  // быстрый выход до await
+    const run = async () => {
+      await this._ready();
+      if (this._destroyed || !this._dbReady || !this._db) return; // уничтожен, пока ждали
+      const blob = source instanceof Blob ? source : await canvasToBlob(source, SNAPSHOT_TYPE);
+      await this._pushInternal(blob);
+    };
+    const p = this._queue.then(run, run);
+    this._queue = p.catch(() => {});
+    return p;
   }
 
-  async _pushInternal(canvas, retryOnQuota = true) {
+  async _pushInternal(blob, retryOnQuota = true) {
     if (!this._db || !this._dbReady) return; // уничтожен между await-ами
     // Удаляем все состояния после курсора (ветка будущего отрезана)
     const future = this._index.slice(this._cursor + 1);
@@ -314,7 +248,6 @@ export class HistoryManager {
       await this._dropOldest();
     }
 
-    const blob    = await canvasToBlob(canvas);
     const pos     = (this._index.at(-1)?.pos ?? -1) + 1;
     const size    = blob.size;
     const record  = { sessionId: this._sessionId, pos, blob, size, ts: Date.now() };
@@ -330,7 +263,7 @@ export class HistoryManager {
         // Освобождаем ~половину истории и пробуем снова
         const half = Math.max(1, Math.ceil(this._index.length / 2));
         for (let i = 0; i < half; i++) await this._dropOldest();
-        await this._pushInternal(canvas, false);
+        await this._pushInternal(blob, false);
       } else {
         console.warn('[HistoryManager] push failed:', err);
       }
@@ -348,7 +281,7 @@ export class HistoryManager {
   }
 
   /**
-   * Шаг назад. Возвращает Image или null.
+   * Шаг назад. Возвращает Blob снапшота или null.
    */
   async undo() {
     await this._ready();
@@ -359,7 +292,7 @@ export class HistoryManager {
   }
 
   /**
-   * Шаг вперёд. Возвращает Image или null.
+   * Шаг вперёд. Возвращает Blob снапшота или null.
    */
   async redo() {
     await this._ready();
@@ -373,8 +306,7 @@ export class HistoryManager {
     if (this._cursor < 0 || this._cursor >= this._index.length) return null;
     const { id } = this._index[this._cursor];
     const row = await dbGet(tx(this._db, 'readonly'), id);
-    if (!row?.blob) return null;
-    return blobToImage(row.blob);
+    return row?.blob ?? null;
   }
 
   /** Очищает историю текущей сессии. */
@@ -388,11 +320,26 @@ export class HistoryManager {
     this._notify();
   }
 
-  /** Очищает и закрывает соединение с БД. */
+  /**
+   * Очищает сессию и закрывает соединение с БД.
+   *
+   * Порядок важен: сначала дождаться очереди push и очистить записи,
+   * и только потом снять _dbReady. Раньше флаг снимался первым, clear()
+   * выходил по guard, и записи сессии оставались в IndexedDB навсегда.
+   */
   async destroy() {
-    this._destroyed = true;  // быстрый флаг — проверяется до любого await
+    if (this._destroyed) return;
+    this._destroyed = true;  // блокирует новые push до любого await
+    await this._queue.catch(() => {});
+    await this._ready();
+    if (this._dbReady && this._db) {
+      try { await clearSession(this._db, this._sessionId); }
+      catch (err) { console.warn('[HistoryManager] destroy: не удалось очистить сессию', err); }
+    }
+    this._index     = [];
+    this._cursor    = -1;
+    this._totalSize = 0;
     this._dbReady   = false;
-    await this.clear();
     this._db?.close();
     this._db = null;
   }

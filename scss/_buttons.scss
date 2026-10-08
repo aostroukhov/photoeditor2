@@ -1,4 +1,6 @@
 // ─── Общие кнопки виджета ─────────────────────────────────────────────────────
+@use 'variables' as *;
+@use 'mixins' as *;
 // BEM: .photoeditor__button / .photoeditor__button--*
 // Используются в панелях (crop, overlay, export, import)
 
@@ -48,12 +50,6 @@
     font-size: 0.75em;    // 12px
     min-height: $btn-h-compact;
     padding: 0 0.625em;
-  }
-
-  &--icon-only {
-    min-width: $btn-h-compact;
-    padding: 0;
-    i { font-size: $icon-size-sm; }
   }
 
   &--success {

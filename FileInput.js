@@ -14,8 +14,6 @@ export class FileInput {
 	constructor(photoEditor) {
 		this.photoEditor    = photoEditor;
 		this.fileInput      = null;
-		this.multiply       = false;
-		this.fileNameSuffix = EditorConfig.export.fileNameSuffix;
 		this.lock           = false;
 		this.originalFile   = null;
 
@@ -25,7 +23,8 @@ export class FileInput {
 		/** Вызывается при ошибках */
 		this.onError = (msg) => console.error('[FileInput]', msg);
 
-		this.open = this.open.bind(this);
+		this.open      = this.open.bind(this);
+		this._onChange = () => { if (!this.lock) this.import(); };
 	}
 
 
@@ -35,21 +34,14 @@ export class FileInput {
 		this.originalFile = this.fileInput.files[0];
 		if (!this.originalFile) { this._toggleButtons(false); return; }
 
-		// Сохраняем имя и тип в photoEditor
-		this.photoEditor.originalFileName = this.originalFile.name;
-		this.photoEditor.originalMimeType = this.originalFile.type || 'image/png';
-
-		const reader    = new FileReader();
-		reader.onload   = (e) => {
-			const img   = new Image();
-			img.onload  = () => {
-				this.photoEditor.commitImage(img);
-				this._toggleButtons(true);
-			};
-			img.src = e.target.result;
-		};
-		reader.onerror = () => this.onError('Ошибка чтения файла');
-		reader.readAsDataURL(this.originalFile);
+		// Blob → blob: URL → <img>: одно декодирование, без base64 в памяти
+		this.photoEditor.setImageBlob(this.originalFile, {
+			fileName: this.originalFile.name,
+			mimeType: this.originalFile.type || 'image/png',
+			fileSize: this.originalFile.size,
+		})
+			.then(() => this._toggleButtons(true))
+			.catch(() => this.onError('Ошибка чтения файла'));
 	}
 
 
@@ -79,7 +71,7 @@ export class FileInput {
 			this.fileInput.files = dt.files;
 			this.fileInput.dispatchEvent(new Event('change', { bubbles: true }));
 			this.lock = false;
-		}, mimeType, 0.85);
+		}, mimeType, EditorConfig.loadExportQuality() / 100);   // то же качество, что в ExportPanel
 	}
 
 
@@ -147,14 +139,23 @@ export class FileInput {
 	}
 
 
+	/**
+	 * Привязывает к <input type="file">. Идемпотентен: повторный вызов
+	 * (в т.ч. с другим элементом) снимает слушатели с предыдущего.
+	 */
 	bind(fileInputElement) {
+		this.unbind();
 		this.fileInput = fileInputElement;
-		this.multiply  = fileInputElement.multiple ?? this.multiply;
-
-		this.fileInput.addEventListener('change', () => {
-			if (!this.lock) this.import();
-		});
+		this.fileInput.addEventListener('change',      this._onChange);
 		this.fileInput.addEventListener('photoeditor', this.open);
+	}
+
+	/** Снимает слушатели с текущего <input>. */
+	unbind() {
+		if (!this.fileInput) return;
+		this.fileInput.removeEventListener('change',      this._onChange);
+		this.fileInput.removeEventListener('photoeditor', this.open);
+		this.fileInput = null;
 	}
 
 

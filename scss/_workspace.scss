@@ -1,21 +1,12 @@
 // ─── Рабочая область редактора ────────────────────────────────────────────────
+@use 'variables' as *;
+@use 'mixins' as *;
 
 .photoeditor {
   // Корневой блок — фиксирует font-size для em-единиц всего виджета
   &__container {
-    // CSS-переменные (можно переопределить снаружи)
-    --pe-text:          #fff;
-    --pe-bg:            rgba(0,0,0,.92);
-    --pe-border:        hsla(0,0%,100%,.15);
-    --pe-btn:           #3a3a52;
-    --pe-btn-hover:     #4e4e6e;
-    --pe-btn-active:    #2563b8;
-    --pe-accent:        #4a9eff;
-    --pe-danger:        #7a2020;
-    --pe-danger-hover:  #a33030;
-    --pe-success:       #1a6336;
-    --pe-success-hover: #238c4e;
-    --pe-toolbar-h:     4.5em;
+    // CSS-переменные из $pe-vars (можно переопределить снаружи)
+    @each $name, $value in $pe-vars { #{$name}: #{$value}; }
 
     // Базовый размер — все em внутри компонента относительно него
     font-size: 16px;
@@ -33,7 +24,7 @@
     -webkit-user-select: none;
     -moz-user-select: none;
     user-select: none;
-    z-index: 117;
+    z-index: $z-container;
   }
 
   &__body { // на <body>
@@ -73,7 +64,7 @@
     -moz-user-select: none;
     user-select: none;
     width: 100%;
-    z-index: 10;
+    z-index: $z-canvas;
   }
 
   &__img {
@@ -98,6 +89,29 @@
     white-space: nowrap;
   }
 }
+
+// ── Занятость (PhotoEditor.setBusy) ──────────────────────────────────────────
+// Длительная операция (apply в Worker): тулбар не принимает клики,
+// поверх изображения — спиннер.
+.photoeditor__container.is-busy {
+  .pe-toolbar, .pe-panel { pointer-events: none; opacity: .6; }
+  .photoeditor__img-container::after {
+    animation: pe-spin .8s linear infinite;
+    border: 3px solid hsla(0,0%,100%,.25);
+    border-radius: 50%;
+    border-top-color: var(--pe-accent);
+    content: '';
+    height: 2.5em;
+    left: 50%;
+    margin: -1.25em 0 0 -1.25em;
+    position: absolute;
+    top: 50%;
+    width: 2.5em;
+    z-index: $z-busy;
+  }
+}
+
+@keyframes pe-spin { to { transform: rotate(360deg); } }
 
 // ── Анимации ─────────────────────────────────────────────────────────────────
 @keyframes pe-fade-in {
