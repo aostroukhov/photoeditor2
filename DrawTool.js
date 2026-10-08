@@ -234,7 +234,7 @@ const RESIZE_HANDLES = [
   { name: 'bottomRight', cursor: 'nwse-resize' },
   { name: 'bottomLeft',  cursor: 'nesw-resize' },
 ];
-const HINT_DEFAULT = 'Shift — прямые · удержание ≥2 с — фигура/стрелка · Alt — пипетка';
+const HINT_DEFAULT = 'Shift — прямая · удержание — фигура или стрелка · Alt+клик — пипетка';
 const HINT_ALT     = 'Alt+клик — захватить цвет с изображения';
 
 
@@ -664,7 +664,7 @@ export class DrawTool extends ToolBase {
           <span class="draw-panel__lbl-text">Цвет</span>
           <input type="color" class="draw-panel__color" value="${this.color}">
         </label>
-        <label class="draw-panel__lbl" title="Толщина линии ([ и ] для изменения)">
+        <label class="draw-panel__lbl" title="Толщина линии. Клавиши [ и ] уменьшают/увеличивают">
           <span class="draw-panel__lbl-text">Толщина</span>
           <input type="range" class="draw-panel__width"
                  min="${CFG.minWidth}" max="${CFG.maxWidth}" value="${this.lineWidth}">

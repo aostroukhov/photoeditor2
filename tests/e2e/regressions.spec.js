@@ -295,3 +295,63 @@ test('#6: рамка текстового оверлея следует за т�
   expect(m2.w).toBeGreaterThan(m1 * 1.5);
   expect(m2.h).toBeGreaterThan(m0.h * 1.5);
 });
+
+for (const width of [360, 390, 768]) {
+  test(`#8: все кнопки тулбара в пределах экрана при ширине ${width}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 800 });
+    await openEditor(page);
+    const bad = await page.evaluate((w) => {
+      return [...document.querySelectorAll('.pe-toolbar__btn')].map(b => ({ t: b.dataset.tool || b.dataset.action, r: b.getBoundingClientRect() }))
+        .filter(({ r }) => r.width < 20 || r.left < -1 || r.right > w + 1 || r.bottom > 800 + 1).map(x => x.t);
+    }, width);
+    expect(bad).toEqual([]);
+    const img = await page.locator('.photoeditor__img').boundingBox();
+    const tb  = await page.locator('.pe-toolbar').boundingBox();
+    expect(img.y + img.height).toBeLessThanOrEqual(tb.y + 1);
+  });
+}
+
+for (const width of [390, 768]) {
+  test(`#7: кнопки шапки панели не перекрыты «Отмена/Применить» при ширине ${width}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await openEditor(page);
+    const hit = async (sel) => page.evaluate((sel) => {
+      const el = document.querySelector(sel); const r = el.getBoundingClientRect();
+      return document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)?.closest(sel) === el;
+    }, sel);
+    await startTool(page, 'overlay');
+    await page.waitForTimeout(400);
+    expect(await hit('.overlay-panel__btn-add-text')).toBe(true);
+    expect(await hit('.overlay-panel__btn-add-image')).toBe(true);
+    expect(await hit('.overlay-panel__btn-cancel')).toBe(true);
+    await startTool(page, 'adjust');
+    await page.waitForTimeout(400);
+    expect(await hit('.adj-panel__btn-reset')).toBe(true);
+    expect(await hit('.adj-panel__btn-apply')).toBe(true);
+  });
+}
+
+test('#11: редактор отдаёт исходный Blob текущего изображения (heal → undo → redo)', async ({ page }) => {
+  await openEditor(page);
+  const info = async () => page.evaluate(() => {
+    const b = window.editor.getImageBlob();
+    return b instanceof Blob ? { size: b.size, type: b.type } : null;
+  });
+  // fixture грузит через setImage(data:) — Blob появляется после baseline-снапшота истории
+  await page.waitForFunction(() => window.editor.getImageBlob() instanceof Blob);
+  expect((await info())?.type).toBe('image/png');
+  await startTool(page, 'heal');
+  await dragOnCanvas(page, [0.3, 0.3], [0.4, 0.4], 6);
+  await page.waitForTimeout(600);
+  const before = await imgSrc(page);
+  await panelBtn(page, 'heal', 'apply').click();
+  await waitForImageChange(page, before);
+  const b1 = await info();
+  expect(b1?.type).toBe('image/png');                // результат Worker — PNG Blob
+  await page.click('[data-action="undo"]');
+  await waitForImageChange(page, await imgSrc(page));
+  expect(await info()).not.toBeNull();               // снапшот истории тоже с Blob
+  await page.click('[data-action="redo"]');
+  await waitForImageChange(page, await imgSrc(page));
+  expect((await info())?.size).toBe(b1.size);
+});

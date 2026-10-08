@@ -34,6 +34,16 @@ describe('HistoryManager', () => {
     expect(hm.canRedo).toBe(false);
   });
 
+  it('push принимает Promise<Blob> и сохраняет порядок записей', async () => {
+    const slow = new Promise(r => setTimeout(() => r(new Blob([new Uint8Array(10)], { type: 'image/png' })), 20));
+    const p1 = hm.push(slow);
+    const p2 = hm.push(fakeCanvas());
+    await Promise.all([p1, p2]);
+    expect(hm.total).toBe(2);
+    expect(hm._index[0].size).toBe(10);        // первой лежит запись из промиса
+    expect(hm._index[1].size).toBeGreaterThan(100);
+  });
+
   it('параллельные push не теряются', async () => {
     await Promise.all([hm.push(fakeCanvas()), hm.push(fakeCanvas()), hm.push(fakeCanvas())]);
     expect(hm.total).toBe(3);

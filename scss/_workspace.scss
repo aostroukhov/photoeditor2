@@ -35,11 +35,12 @@
   // ── Рабочая область ───────────────────────────────────────────────────
   &__workspace {
     align-items: flex-start;   // прижимаем изображение к верху
+    align-items: center;       // изображение по центру свободной области (между верхом и панелью)
     display: flex;
     flex: 1;
     justify-content: center;
     overflow: hidden;
-    padding-bottom: var(--pe-toolbar-h);
+    padding-bottom: calc(var(--pe-toolbar-h) + var(--pe-panel-h, 0px));
     padding-top: 0.375em;      // минимальный зазор сверху
   }
 

@@ -191,6 +191,7 @@ export class OverlayTool extends ToolBase {
   selected = null;
 
   _historySize   = CFG.historySize;
+  _presets       = CFG.presets;   // переопределяется opts.presets (issue #10)
   _drag   = null;   // { startX, startY, origX, origY }
   _resize = null;   // { handle, origW, origH, origX, origY, aspectRatio, origFontSize }
   _rotate = null;   // { startAngle }
@@ -199,6 +200,7 @@ export class OverlayTool extends ToolBase {
   constructor(photoEditor, opts = {}) {
     super(photoEditor, { id: 'overlay' });
     this._historySize = opts.historySize ?? CFG.historySize;
+    if (Array.isArray(opts.presets)) this._presets = opts.presets;
   }
 
 
@@ -769,7 +771,7 @@ export class OverlayTool extends ToolBase {
       };
       if (src && (src.startsWith('data:image/') || /^(https?:)?\//.test(src))) {
         const img = document.createElement('img');
-        img.style.cssText = 'width:100%;height:100%;object-fit:cover;border-radius:0.2em';
+        img.style.cssText = 'width:100%;height:100%;object-fit:contain;border-radius:0.2em';
         img.alt = ''; img.onerror = () => { img.remove(); fallback(); };
         img.src = src;
         thumb.appendChild(img);
@@ -830,7 +832,7 @@ export class OverlayTool extends ToolBase {
     const presetsEl = panel.querySelector('.overlay-panel__presets-list');
     const activatePreset = (target) => {
       const card = target.closest('.overlay-history__card');
-      const preset = card && EditorConfig.overlay.presets?.[Number(card.dataset.index)];
+      const preset = card && this._presets?.[Number(card.dataset.index)];
       if (preset) this._applyPreset(preset);
     };
     presetsEl.addEventListener('click', (e) => activatePreset(e.target));
@@ -843,7 +845,7 @@ export class OverlayTool extends ToolBase {
   _renderPresetsPanel() {
     const p = this._panel;
     if (!p) return;
-    const presets = EditorConfig.overlay.presets;
+    const presets = this._presets;
     const wrap = p.querySelector('.overlay-panel__presets');
     const list = p.querySelector('.overlay-panel__presets-list');
     list.innerHTML = '';

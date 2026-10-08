@@ -47,3 +47,15 @@ describe('safeCssColor', () => {
     expect(safeCssColor(undefined)).toBe('#ffffff');
   });
 });
+
+describe('OverlayTool presets option', () => {
+  it('overlayOptions.presets имеет приоритет над EditorConfig', async () => {
+    const { OverlayTool } = await import('../../OverlayTool.js');
+    const { EditorConfig } = await import('../../EditorConfig.js');
+    const pe = { imgElement: null, img: null, container: null, dialogs: null };
+    expect(new OverlayTool(pe)._presets).toBe(EditorConfig.overlay.presets);
+    const mine = [{ id: 'x', label: 'X', items: [] }];
+    expect(new OverlayTool(pe, { presets: mine })._presets).toBe(mine);
+    expect(new OverlayTool(pe, { presets: [] })._presets).toEqual([]);
+  });
+});

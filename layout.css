@@ -1,6 +1,6 @@
 .photoeditor__container {
   --pe-text: #fff;
-  --pe-bg: rgba(0, 0, 0, 0.92);
+  --pe-bg: #0e0e16;
   --pe-border: hsla(0, 0%, 100%, 0.15);
   --pe-btn: #3a3a52;
   --pe-btn-hover: #4e4e6e;
@@ -33,11 +33,12 @@
 }
 .photoeditor__workspace, .pe-workspace {
   align-items: flex-start;
+  align-items: center;
   display: flex;
   flex: 1;
   justify-content: center;
   overflow: hidden;
-  padding-bottom: var(--pe-toolbar-h);
+  padding-bottom: calc(var(--pe-toolbar-h) + var(--pe-panel-h, 0px));
   padding-top: 0.375em;
 }
 .photoeditor__img-container {
@@ -219,23 +220,39 @@
     font-size: 0.6875em;
   }
 }
-@media (max-width: 25em) {
+@media (max-width: 56em) {
   .pe-toolbar__btn {
-    min-width: 2.875em;
-    padding: 0.375em;
+    min-width: 3.25em;
+    padding: 0.5em 0.375em 0.4em;
   }
   .pe-toolbar__label {
-    display: none;
+    font-size: 0.625em;
   }
 }
 @media (max-width: 37.5em) {
   .photoeditor__container {
-    --pe-toolbar-h: 3.5em;
+    --pe-toolbar-h: 6.5em;
+  }
+  .pe-toolbar {
+    flex-wrap: wrap;
+  }
+  .pe-toolbar__group {
+    flex: 1 0 100%;
+    min-height: 3.25em;
+  }
+  .pe-toolbar__group--tools {
+    justify-content: space-around;
+  }
+  .pe-toolbar__group--actions {
+    border-top: 1px solid hsla(0, 0%, 100%, 0.1);
+    justify-content: space-around;
+    margin-left: 0;
   }
   .pe-toolbar__btn {
-    min-width: 2.625em;
-    padding: 0.375em 0.375em 0.3em;
+    flex: 1 1 0;
     gap: 0.25em;
+    min-width: 0;
+    padding: 0.375em 0.25em 0.3em;
   }
   .pe-toolbar__label {
     display: none;
@@ -319,7 +336,7 @@
 }
 .photoeditor__button--compact {
   font-size: 0.75em;
-  min-height: 2.25em;
+  min-height: 2.75em;
   padding: 0 0.625em;
 }
 .photoeditor__button--success {
@@ -333,6 +350,10 @@
 }
 .photoeditor__button--danger:hover {
   background: var(--pe-danger-hover);
+}
+
+.pe-panel input[type=range] {
+  max-width: 20em;
 }
 
 @keyframes pe-panel-in {
@@ -365,29 +386,37 @@
 .pe-panel__header {
   align-items: center;
   display: flex;
+  flex-wrap: wrap;
   gap: 0.5em;
   justify-content: space-between;
   margin-bottom: 0.125em;
   min-height: 1.75em;
+  row-gap: 0.25em;
 }
 .pe-panel__title {
-  color: hsla(0, 0%, 100%, 0.35);
-  font-size: 0.6875em;
+  color: hsla(0, 0%, 100%, 0.6);
+  font-size: 0.75em;
   font-weight: 700;
   letter-spacing: 0.08em;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 .pe-panel__header-actions {
   align-items: center;
   display: flex;
+  flex: 0 0 auto;
   gap: 0.25em;
   margin-left: auto;
 }
 .pe-panel__header-left {
   align-items: center;
   display: flex;
+  flex: 0 0 auto;
   gap: 0.5em;
-  min-width: 0;
+  max-width: 100%;
 }
 .pe-panel__close {
   -webkit-appearance: none;
@@ -425,7 +454,7 @@
 }
 .pe-panel__hint {
   color: hsla(0, 0%, 100%, 0.3);
-  font-size: 0.6875em;
+  font-size: 0.75em;
   line-height: 1.4;
 }
 .pe-panel__status {
@@ -475,7 +504,7 @@
 }
 .pe-panel__action-btn-text {
   color: hsla(0, 0%, 100%, 0.8);
-  font-size: 0.6875em;
+  font-size: 0.75em;
 }
 
 .pe-panel--export {
@@ -606,7 +635,7 @@
   color: hsla(0, 0%, 100%, 0.7);
   flex-shrink: 0;
   font-family: inherit;
-  font-size: 0.625em;
+  font-size: 0.75em;
   font-weight: 600;
   height: 2.8em;
   padding: 0 0.625em;
@@ -638,7 +667,7 @@
   border-bottom: none;
   padding: 0.5em 0.75em 0.625em;
 }
-@media (min-width: 30em) {
+@media (min-width: 56em) {
   .pe-panel--overlay {
     margin: 0 13.75em;
   }
@@ -664,7 +693,7 @@
 }
 .pe-panel--overlay .overlay-panel__lbl-text {
   color: hsla(0, 0%, 100%, 0.35);
-  font-size: 0.6875em;
+  font-size: 0.75em;
 }
 .pe-panel--overlay .overlay-panel__opacity, .pe-panel--overlay .overlay-panel__rotation, .pe-panel--overlay .overlay-panel__stroke-width {
   accent-color: var(--pe-accent);
@@ -758,7 +787,7 @@
 }
 .pe-panel--overlay .overlay-panel__history-label {
   color: hsla(0, 0%, 100%, 0.3);
-  font-size: 0.625em;
+  font-size: 0.75em;
   font-weight: 700;
   letter-spacing: 0.08em;
   margin-bottom: 0.375em;
@@ -813,6 +842,15 @@
   border-radius: 2px;
 }
 
+.overlay-panel__history-list,
+.overlay-panel__presets-list {
+  display: flex;
+  gap: 0.5em;
+  overflow-x: auto;
+  padding-bottom: 0.25em;
+  scrollbar-width: thin;
+}
+
 .overlay-history__card {
   background: hsla(0, 0%, 100%, 0.06);
   border: 1px solid var(--pe-border);
@@ -821,8 +859,9 @@
   display: flex;
   flex-direction: column;
   gap: 0.3125em;
+  flex: 0 0 auto;
   max-width: 7.5em;
-  min-width: 2em;
+  min-width: 4.5em;
   padding: 0.5em 0.625em 0.375em;
   position: relative;
   transition: background 0.15s ease;
@@ -845,7 +884,7 @@
   -webkit-tap-highlight-color: transparent;
   border-radius: 0.1875em;
   color: hsla(0, 0%, 100%, 0.3);
-  font-size: 0.625em;
+  font-size: 0.75em;
   padding: 0.125em 0.1875em;
   position: absolute;
   right: 0.25em;
@@ -863,15 +902,18 @@
 .overlay-history__thumb {
   border: 1px solid var(--pe-border);
   border-radius: 0.25em;
-  height: 1.875em;
-  object-fit: cover;
-  width: 1.875em;
+  height: 2.25em;
+  object-fit: contain;
+  width: 2.25em;
+}
+.overlay-history__thumb img {
+  object-fit: contain !important;
 }
 .overlay-history__thumb--text {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.625em;
+  font-size: 0.75em;
   font-weight: 700;
   overflow: hidden;
 }
@@ -882,8 +924,8 @@
   background-size: 0.5em 0.5em;
 }
 .overlay-history__summary {
-  color: hsla(0, 0%, 100%, 0.3);
-  font-size: 0.625em;
+  color: hsla(0, 0%, 100%, 0.55);
+  font-size: 0.75em;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -900,7 +942,7 @@
   border-bottom: none;
   padding: 0.5em 0.75em 0.625em;
 }
-@media (min-width: 30em) {
+@media (min-width: 56em) {
   .pe-panel--draw {
     margin: 0 13.75em;
   }
@@ -921,7 +963,7 @@
 }
 .pe-panel--draw .draw-panel__lbl-text {
   color: hsla(0, 0%, 100%, 0.35);
-  font-size: 0.6875em;
+  font-size: 0.75em;
 }
 .pe-panel--draw .draw-panel__color {
   background: none;
@@ -963,7 +1005,7 @@
 }
 .pe-panel--draw .draw-panel__hint {
   color: hsla(0, 0%, 100%, 0.3);
-  font-size: 0.6875em;
+  font-size: 0.75em;
   line-height: 1.4;
 }
 .pe-panel--draw .draw-panel__sketches-wrap {
@@ -972,7 +1014,7 @@
 }
 .pe-panel--draw .draw-panel__sketches-label {
   color: hsla(0, 0%, 100%, 0.3);
-  font-size: 0.625em;
+  font-size: 0.75em;
   font-weight: 700;
   letter-spacing: 0.08em;
   margin-bottom: 0.375em;
@@ -1036,8 +1078,9 @@
   border-radius: 0.25em;
   color: hsla(0, 0%, 100%, 0.5);
   display: flex;
-  font-size: 0.5625em;
-  height: 1.4em;
+  font-size: 0.75em;
+  height: 1.75em;
+  min-width: 1.75em;
   justify-content: center;
   line-height: 1;
   opacity: 0;
@@ -1120,7 +1163,7 @@
   color: #f88 !important;
 }
 .pe-info-dialog__reset-status {
-  font-size: 0.6875em;
+  font-size: 0.75em;
   min-height: 1em;
   text-align: center;
   margin-top: 0.25em;
@@ -1140,7 +1183,7 @@
   border-bottom: none;
   padding: 0.625em 0.75em 0.75em;
 }
-@media (min-width: 30em) {
+@media (min-width: 56em) {
   .pe-panel--mask {
     margin: 0 13.75em;
   }
@@ -1162,7 +1205,7 @@
 }
 .pe-panel--mask .mask-panel__lbl-text {
   color: hsla(0, 0%, 100%, 0.35);
-  font-size: 0.6875em;
+  font-size: 0.75em;
 }
 .pe-panel--mask .mask-panel__block-size {
   accent-color: var(--pe-accent);
@@ -1183,7 +1226,7 @@
 }
 .pe-panel--mask .mask-panel__hint {
   color: hsla(0, 0%, 100%, 0.3);
-  font-size: 0.6875em;
+  font-size: 0.75em;
   line-height: 1.4;
 }
 .pe-panel--mask .mask-panel__regions-wrap {
@@ -1192,7 +1235,7 @@
 }
 .pe-panel--mask .mask-panel__regions-label {
   color: hsla(0, 0%, 100%, 0.3);
-  font-size: 0.625em;
+  font-size: 0.75em;
   font-weight: 700;
   letter-spacing: 0.08em;
   margin-bottom: 0.375em;
@@ -1259,7 +1302,7 @@
     gap: 0.25em;
   }
   .pe-panel--overlay .overlay-panel__lbl-text {
-    display: none;
+    font-size: 0.625em;
   }
   .pe-panel--overlay .overlay-panel__opacity,
   .pe-panel--overlay .overlay-panel__rotation {
@@ -1275,7 +1318,7 @@
     gap: 0.25em;
   }
   .pe-panel--draw .draw-panel__lbl-text {
-    display: none;
+    font-size: 0.625em;
   }
   .pe-panel--draw .draw-panel__width,
   .pe-panel--draw .draw-panel__opacity {
@@ -1291,7 +1334,7 @@
     gap: 0.25em;
   }
   .pe-panel--mask .mask-panel__lbl-text {
-    display: none;
+    font-size: 0.625em;
   }
   .pe-panel--mask .mask-panel__regions-label {
     display: none;
@@ -1341,7 +1384,7 @@
   border-bottom: none;
   padding: 0.5em 0.75em 0.6em;
 }
-@media (min-width: 30em) {
+@media (min-width: 56em) {
   .pe-panel--adjust {
     margin: 0 13.75em;
   }

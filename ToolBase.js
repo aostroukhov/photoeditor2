@@ -24,7 +24,7 @@
  *   onResume()                 возврат из suspend (по умолчанию → onStart())
  *   onSuspend()                уход в фон (панель закрыта, другой инструмент)
  *   onCancel()                 отмена без записи результата
- *   onApply() → canvas|Promise<canvas>|null   результат в натуральном разрешении
+ *   onApply() → canvas|Blob|Promise<canvas|Blob>|null   результат в натуральном разрешении
  *   onDestroy()                закрытие редактора
  *   onViewResize(kx, ky)       размер области изменился — масштабировать состояние
  *   onDraw(ctx)                перерисовать overlay (ctx уже в логических координатах)
@@ -196,14 +196,21 @@ export class ToolBase {
     if (out && typeof out.then === 'function') {
       // Долгая операция (Worker): показываем занятость, блокируем тулбар
       this.pe.setBusy?.(true);
-      out.then(cv => cv && this.pe.commitCanvas(cv))
+      out.then(res => this._commitResult(res))
          .catch(err => console.error(`[${this.constructor.name}] apply():`, err))
          .finally(() => this.pe.setBusy?.(false));
     } else if (out) {
-      this.pe.commitCanvas(out)
+      this._commitResult(out)
           .catch(err => console.error(`[${this.constructor.name}] apply():`, err));
     }
     this._teardown();
+  }
+
+  /** Результат onApply: Blob (уже закодирован) или canvas. */
+  _commitResult(res) {
+    if (!res) return Promise.resolve();
+    if (typeof Blob !== 'undefined' && res instanceof Blob) return this.pe.commitBlob(res);
+    return this.pe.commitCanvas(res);
   }
 
   destroy() {

@@ -7,6 +7,9 @@
 // Конкретные панели: .pe-panel--export, .pe-panel--import, .pe-panel--crop,
 //                    .pe-panel--overlay
 
+// Слайдеры не растягиваются на всю панель: точности это не добавляет (issue #9)
+.pe-panel input[type="range"] { max-width: 20em; }
+
 // ── Анимация ─────────────────────────────────────────────────────────────────
 @keyframes pe-panel-in {
   from { opacity: 0; transform: translateY(0.75em); }
@@ -34,24 +37,31 @@
   &__header {
     align-items: center;
     display: flex;
-    gap: 0.5em;
+    flex-wrap: wrap;        // на узкой панели «Отмена/Применить» уходят второй строкой,
+    gap: 0.5em;             // а не ложатся поверх левой группы (issue #7)
     justify-content: space-between;
     margin-bottom: 0.125em;
     min-height: 1.75em;
+    row-gap: 0.25em;
   }
 
   &__title {
-    color: hsla(0,0%,100%,.35);
-    font-size: 0.6875em;  // 11px
+    color: hsla(0,0%,100%,.6);
+    font-size: 0.75em;    // 12px
     font-weight: 700;
     letter-spacing: .08em;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
     text-transform: uppercase;
+    white-space: nowrap;
   }
 
   // Группа кнопок «Отмена» + «Применить» в правом углу шапки
   &__header-actions {
     align-items: center;
     display: flex;
+    flex: 0 0 auto;
     gap: 0.25em;
     margin-left: auto;
   }
@@ -60,8 +70,9 @@
   &__header-left {
     align-items: center;
     display: flex;
+    flex: 0 0 auto;         // не сжимается меньше содержимого
     gap: 0.5em;
-    min-width: 0;
+    max-width: 100%;
   }
 
   // Единообразная кнопка закрытия панели
@@ -90,7 +101,7 @@
 
   &__hint {
     color: hsla(0,0%,100%,.3);
-    font-size: 0.6875em;
+    font-size: 0.75em;
     line-height: 1.4;
   }
 
@@ -128,7 +139,7 @@
     // Подпись — читаемый цвет (исправлен п.7)
     &-text {
       color: hsla(0,0%,100%,.8);
-      font-size: 0.6875em;
+      font-size: 0.75em;
     }
   }
 }
@@ -249,7 +260,7 @@
     color: hsla(0,0%,100%,.7);
     flex-shrink: 0;
     font-family: inherit;
-    font-size: 0.625em;
+    font-size: 0.75em;
     font-weight: 600;
     height: 2.8em; // 1.75em / 0.625em — выравниваем высоту
     padding: 0 0.625em;
@@ -305,7 +316,7 @@
 
     &__lbl-text {
       color: hsla(0,0%,100%,.35);
-      font-size: 0.6875em;
+      font-size: 0.75em;
     }
 
     &__opacity,
@@ -408,7 +419,7 @@
 
       &-label {
         color: hsla(0,0%,100%,.3);
-        font-size: 0.625em;
+        font-size: 0.75em;
         font-weight: 700;
         letter-spacing: .08em;
         margin-bottom: 0.375em;
@@ -459,6 +470,15 @@
 }
 
 // ── История оверлеев (карточки) ──────────────────────────────────────────────
+.overlay-panel__history-list,
+.overlay-panel__presets-list {
+  display: flex;
+  gap: 0.5em;
+  overflow-x: auto;
+  padding-bottom: 0.25em;
+  scrollbar-width: thin;
+}
+
 .overlay-history {
   &__card {
     background: hsla(0,0%,100%,.06);
@@ -468,9 +488,9 @@
     display: flex;
     flex-direction: column;
     gap: 0.3125em;
+    flex: 0 0 auto;         // не сжимать карточки — список прокручивается (issue #10)
     max-width: 7.5em;
-    //min-width: 5em;
-		min-width: 2em;
+    min-width: 4.5em;
     padding: 0.5em 0.625em 0.375em;
     position: relative;
     transition: background $pe-transition;
@@ -482,7 +502,7 @@
     @include btn-reset;
     border-radius: 0.1875em;
     color: hsla(0,0%,100%,.3);
-    font-size: 0.625em;
+    font-size: 0.75em;
     padding: 0.125em 0.1875em;
     position: absolute;
     right: 0.25em;
@@ -500,13 +520,15 @@
   &__thumb {
     border: 1px solid var(--pe-border);
     border-radius: 0.25em;
-    height: 1.875em;
-    object-fit: cover;
-    width: 1.875em;
+    height: 2.25em;
+    object-fit: contain;
+    width: 2.25em;
+
+    img { object-fit: contain !important; }   // логотип целиком, а не фрагмент
 
     &--text {
       @include flex-center;
-      font-size: 0.625em;
+      font-size: 0.75em;
       font-weight: 700;
       overflow: hidden;
     }
@@ -525,8 +547,8 @@
   }
 
   &__summary {
-    color: hsla(0,0%,100%,.3);
-    font-size: 0.625em;
+    color: hsla(0,0%,100%,.55);
+    font-size: 0.75em;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -557,7 +579,7 @@
 
     &__lbl-text {
       color: hsla(0,0%,100%,.35);
-      font-size: 0.6875em;
+      font-size: 0.75em;
     }
 
     &__color {
@@ -605,7 +627,7 @@
 
     &__hint {
       color: hsla(0,0%,100%,.3);
-      font-size: 0.6875em;
+      font-size: 0.75em;
       line-height: 1.4;
     }
 
@@ -617,7 +639,7 @@
 
     &__sketches-label {
       color: hsla(0,0%,100%,.3);
-      font-size: 0.625em;
+      font-size: 0.75em;
       font-weight: 700;
       letter-spacing: .08em;
       margin-bottom: 0.375em;
@@ -671,8 +693,9 @@
     border-radius: 0.25em;
     color: hsla(0,0%,100%,.5);
     display: flex;
-    font-size: 0.5625em;
-    height: 1.4em;
+    font-size: 0.75em;
+    height: 1.75em;
+    min-width: 1.75em;
     justify-content: center;
     line-height: 1;
     opacity: 0;
@@ -772,7 +795,7 @@
   }
 
   &__reset-status {
-    font-size: 0.6875em;
+    font-size: 0.75em;
     min-height: 1em;
     text-align: center;
     margin-top: 0.25em;
@@ -805,7 +828,7 @@
 
     &__lbl-text {
       color: hsla(0,0%,100%,.35);
-      font-size: 0.6875em;
+      font-size: 0.75em;
     }
 
     &__block-size {
@@ -826,7 +849,7 @@
 
     &__hint {
       color: hsla(0,0%,100%,.3);
-      font-size: 0.6875em;
+      font-size: 0.75em;
       line-height: 1.4;
     }
 
@@ -838,7 +861,7 @@
 
     &__regions-label {
       color: hsla(0,0%,100%,.3);
-      font-size: 0.625em;
+      font-size: 0.75em;
       font-weight: 700;
       letter-spacing: .08em;
       margin-bottom: 0.375em;
@@ -910,7 +933,7 @@
 
     .overlay-panel__row { gap: 0.25em; }
 
-    .overlay-panel__lbl-text { display: none; } // скрываем текстовые метки
+    .overlay-panel__lbl-text { font-size: 0.625em; } // короткие подписи вместо скрытия (issue #9)
 
     .overlay-panel__opacity,
     .overlay-panel__rotation { width: 4.5em; }
@@ -923,7 +946,7 @@
     padding: 0.3em 0.5em 0.35em;
 
     .draw-panel__row { gap: 0.25em; }
-    .draw-panel__lbl-text { display: none; }
+    .draw-panel__lbl-text { font-size: 0.625em; }
     .draw-panel__width,
     .draw-panel__opacity { width: 4.5em; }
 
@@ -936,7 +959,7 @@
     padding: 0.3em 0.5em 0.35em;
 
     .mask-panel__row { gap: 0.25em; }
-    .mask-panel__lbl-text { display: none; }
+    .mask-panel__lbl-text { font-size: 0.625em; }
 
     .mask-panel__regions-label { display: none; }
   }

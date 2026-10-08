@@ -14,7 +14,7 @@ import { EditorConfig } from './EditorConfig.js';
 import { ToolBase }     from './ToolBase.js';
 import { escapeHtml }   from './utils.js';
 import { applyAdjustments, isDefaultParams } from './adjustAlgorithm.js';
-import { runPixelOpSafe } from './pixelOps.js';
+import { processImage }   from './pixelOps.js';
 
 // Реэкспорт для unit-тестов и внешнего кода
 export { rgbToHsl, hslToRgb, buildLUT, applyAdjustments, isDefaultParams } from './adjustAlgorithm.js';
@@ -105,13 +105,10 @@ export class AdjustTool extends ToolBase {
     this.params  = { ...CFG.defaults };
     this._freePreview();
 
-    // Полный кадр — в Worker (на главном потоке 12 Мп через HSL — секунды «замирания»)
-    const out = await runPixelOpSafe('adjust', src, params);
-    const cv  = document.createElement('canvas');
-    cv.width  = out.width;
-    cv.height = out.height;
-    cv.getContext('2d').putImageData(out, 0, 0);
-    return cv;
+    // Полный кадр — в Worker, включая PNG-кодирование; буфер исходника передаётся
+    // transferable (копии нет), при падении Worker пиксели перечитываются из pe.img
+    const img = pe.img;
+    return processImage('adjust', { imageData: src, onRetry: () => readFullImageData(img) }, params);
   }
 
   onDestroy() {
