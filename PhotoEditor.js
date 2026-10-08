@@ -43,7 +43,7 @@ import { canvasToBlob, blobToImage } from './canvasUtils.js';
  *   setImage(), setImageBlob(), clearImage(), getResultCanvas()
  *   bindToFileInput()
  *   syncToolButtons()
- *   commitImage()
+ *   commitImage(), commitCanvas(), commitBlob()
  *   notifyExportDone()
  *
  * Приватные поля (#):
@@ -143,6 +143,14 @@ export class PhotoEditor {
    * Изображения из setImage() (data:/http:) сюда не попадают.
    */
   #ownedUrls = new WeakMap();
+
+  /**
+   * Исходный Blob изображения (img → Blob) для картинок, которые редактор
+   * получил или создал как Blob. Нужен инструментам: createImageBitmap(Blob)
+   * декодирует вне главного потока, а createImageBitmap(<img>) — синхронно
+   * (~300 мс на 24 Мп). См. getImageBlob().
+   */
+  #ownedBlobs = new WeakMap();
 
   /** Число активных длительных операций (см. setBusy). */
   #busyCount = 0;
@@ -388,6 +396,7 @@ export class PhotoEditor {
     if (!(blob instanceof Blob) || !blob.size) throw new Error('setImageBlob: пустой blob');
     const { img, url } = await blobToImage(blob);
     this.#ownedUrls.set(img, url);
+    this.#ownedBlobs.set(img, blob);
     this.#setCurrentImage(img);
     this.originalFileName = fileName ?? this.originalFileName;
     this.originalMimeType = mimeType ?? blob.type ?? this.originalMimeType;
@@ -679,14 +688,34 @@ export class PhotoEditor {
    * @returns {Promise<HTMLImageElement>}
    */
   async commitCanvas(canvas) {
-    const blob = await canvasToBlob(canvas, 'image/png');
+    return this.commitBlob(await canvasToBlob(canvas, 'image/png'));
+  }
+
+  /**
+   * Фиксирует уже закодированный результат (PNG Blob из Worker — см. pixelOps):
+   * на главном потоке остаётся только декодирование <img>.
+   * @param {Blob} blob
+   * @returns {Promise<HTMLImageElement>}
+   */
+  async commitBlob(blob) {
     const { img, url } = await blobToImage(blob);
     this.#ownedUrls.set(img, url);
+    this.#ownedBlobs.set(img, blob);
     this.#setCurrentImage(img);
     this.#isDirty    = true;
     this.#exportDone = false;
     this.#history.push(blob).then(() => this.#updateHistoryUI());
     return img;
+  }
+
+  /**
+   * Исходный Blob текущего изображения, если редактор им владеет
+   * (setImageBlob / commitCanvas / commitBlob / undo-redo). Для картинок из
+   * setImage(data:/http:) — null: инструмент тогда работает с <img>.
+   * @returns {Blob|null}
+   */
+  getImageBlob() {
+    return (this.img && this.#ownedBlobs.get(this.img)) || null;
   }
 
   /** Делает img текущим, обновляет <img> и отпускает предыдущее изображение. */
@@ -1137,8 +1166,10 @@ export class PhotoEditor {
 
   /**
    * Снапшот текущего this.img в историю (пути setImage / commitImage — изображение
-   * пришло не из canvas, blob'а нет). Рисуем на OffscreenCanvas, PNG кодирует
-   * HistoryManager. Вызов немедленный: порядок записей = порядок событий.
+   * пришло не из canvas, blob'а нет). Рисуем на OffscreenCanvas, кодируем PNG
+   * (toBlob — вне главного потока) и тот же Blob запоминаем как исходник
+   * изображения (getImageBlob), чтобы инструменты декодировали его без
+   * блокировки. Вызов немедленный: порядок записей = порядок событий.
    * Раньше снапшот откладывался через requestIdleCallback и мог лечь в историю
    * ПОСЛЕ снапшота первого «Применить» — undo показывал не то состояние.
    */
@@ -1153,7 +1184,12 @@ export class PhotoEditor {
       cv.width = img.naturalWidth; cv.height = img.naturalHeight;
     }
     cv.getContext('2d').drawImage(img, 0, 0);
-    this.#history.push(cv).then(() => this.#updateHistoryUI());
+    // push(Promise) сохраняет порядок записей: HistoryManager ждёт Blob в своей очереди
+    const blobP = canvasToBlob(cv, 'image/png').then((blob) => {
+      if (!this.#ownedBlobs.has(img)) this.#ownedBlobs.set(img, blob);
+      return blob;
+    });
+    this.#history.push(blobP).then(() => this.#updateHistoryUI());
   }
 
   async #undo() {
@@ -1213,6 +1249,7 @@ export class PhotoEditor {
     try {
       const { img, url } = await blobToImage(blob);
       this.#ownedUrls.set(img, url);
+      this.#ownedBlobs.set(img, blob);
       this.#setCurrentImage(img);
     } catch (err) {
       console.error('[PhotoEditor] не удалось показать состояние истории', err);

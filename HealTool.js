@@ -14,9 +14,8 @@
 
 import { EditorConfig }      from './EditorConfig.js';
 import { ToolBase }          from './ToolBase.js';
-import { imageToCanvas }     from './canvasUtils.js';
 import { applyHealingBrush } from './healAlgorithm.js';
-import { runPixelOpSafe }    from './pixelOps.js';
+import { processImage }      from './pixelOps.js';
 
 const CFG    = EditorConfig.heal;
 const LS_KEY = CFG.storageKey;
@@ -110,13 +109,9 @@ export class HealTool extends ToolBase {
     const opts    = { searchMult: this.searchMult, featherFraction: CFG.featherFraction };
     this._reset();
 
-    const canvas  = imageToCanvas(img);
-    const ctx     = canvas.getContext('2d');
-    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    // Алгоритм — в Worker: на главном потоке большое фото «замирало» на секунды
-    const out = await runPixelOpSafe('heal', imgData, { strokes, opts });
-    ctx.putImageData(out, 0, 0);
-    return canvas;
+    // Декодирование (createImageBitmap(Blob)), пиксели, алгоритм и PNG-кодирование —
+    // вне главного потока; сюда возвращается готовый Blob (issue #11)
+    return processImage('heal', { blob: this.pe.getImageBlob(), image: img }, { strokes, opts });
   }
 
   onViewResize(kx, ky) {

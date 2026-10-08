@@ -208,8 +208,9 @@ export class HistoryManager {
    * два быстрых commitImage() дают два состояния. Раньше стоял мьютекс,
    * который молча отбрасывал конкурентный push — состояние терялось.
    *
-   * @param {Blob|HTMLCanvasElement|OffscreenCanvas} source  Готовый blob (предпочтительно —
-   *        без повторного кодирования) или canvas, который будет закодирован в PNG.
+   * @param {Blob|Promise<Blob>|HTMLCanvasElement|OffscreenCanvas} source  Готовый blob
+   *        (предпочтительно — без повторного кодирования), промис blob'а (кодирование уже
+   *        запущено вызывающей стороной) или canvas, который будет закодирован в PNG.
    * @returns {Promise<void>}
    */
   push(source) {
@@ -217,7 +218,8 @@ export class HistoryManager {
     const run = async () => {
       await this._ready();
       if (this._destroyed || !this._dbReady || !this._db) return; // уничтожен, пока ждали
-      const blob = source instanceof Blob ? source : await canvasToBlob(source, SNAPSHOT_TYPE);
+      const src  = await source;   // Blob | canvas (await не-промиса — no-op)
+      const blob = src instanceof Blob ? src : await canvasToBlob(src, SNAPSHOT_TYPE);
       await this._pushInternal(blob);
     };
     const p = this._queue.then(run, run);

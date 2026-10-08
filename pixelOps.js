@@ -1,20 +1,30 @@
 /**
  * Запуск попиксельных операций вне главного потока.
  *
- * runPixelOp(op, imageData, params) → Promise<ImageData>
+ *   processImage(op, source, params) → Promise<Blob>
  *
- * Использует module-Worker (pixelWorker.js); если Worker недоступен или
- * падает при создании (старый браузер, CSP без worker-src, file://) —
- * выполняет операцию на главном потоке. Буфер передаётся transferable:
- * копирования пикселей нет, imageData после вызова использовать нельзя.
+ * source:
+ *   { blob, image? }            — закодированное изображение (см. PhotoEditor.getImageBlob):
+ *                                 createImageBitmap(Blob) декодирует вне главного потока, дальше
+ *                                 всё в Worker: пиксели, алгоритм, PNG-кодирование. Предпочтительно;
+ *   { image }                   — HTMLImageElement/ImageBitmap/canvas: createImageBitmap(<img>)
+ *                                 в Chrome декодирует синхронно (~300 мс на 24 Мп), поэтому
+ *                                 используется только когда Blob недоступен;
+ *   { imageData, onRetry? }     — готовые пиксели (буфер передаётся transferable и становится
+ *                                 недоступен); onRetry() возвращает свежий ImageData, если
+ *                                 Worker упал и операцию надо повторить на главном потоке.
+ *
+ * Если Worker недоступен (старый браузер, CSP без worker-src) или в нём нет
+ * OffscreenCanvas — операция выполняется на главном потоке (как в 3.6).
  */
 import { applyHealingBrush } from './healAlgorithm.js';
 import { applyAdjustments }  from './adjustAlgorithm.js';
+import { canvasToBlob, blobToImage } from './canvasUtils.js';
 
 let worker       = null;
 let workerBroken = false;
 let seq          = 0;
-const pending    = new Map();   // id → { resolve, reject, width, height }
+const pending    = new Map();   // id → { resolve, reject }
 
 function getWorker() {
   if (worker || workerBroken) return worker;
@@ -27,12 +37,12 @@ function getWorker() {
     return null;
   }
   worker.onmessage = (e) => {
-    const { id, buffer, error } = e.data;
+    const { id, error } = e.data;
     const p = pending.get(id);
     if (!p) return;
     pending.delete(id);
     if (error) p.reject(new Error(error));
-    else p.resolve(new ImageData(new Uint8ClampedArray(buffer), p.width, p.height));
+    else p.resolve(e.data);
   };
   worker.onerror = (ev) => {
     // Worker не поднялся (например, CSP) — все ожидающие уходят в фоллбэк
@@ -53,49 +63,77 @@ function runOnMainThread(op, imageData, params) {
   return imageData;
 }
 
-/**
- * @param {'heal'|'adjust'} op
- * @param {ImageData} imageData  — буфер будет передан в Worker (станет недоступен)
- * @param {object} params
- * @returns {Promise<ImageData>}
- */
-export function runPixelOp(op, imageData, params) {
-  const w = getWorker();
-  if (!w) return Promise.resolve(runOnMainThread(op, imageData, params));
+/** Источник для рисования на canvas: image, а если его нет — декодированный blob. */
+async function sourceImage(source) {
+  if (source.image) return source.image;
+  if (!(source.blob instanceof Blob)) return null;
+  const { img, url } = await blobToImage(source.blob);
+  URL.revokeObjectURL(url);          // img уже декодирован, URL больше не нужен
+  return img;
+}
 
-  const { width, height } = imageData;
-  // Копия параметров без ссылок на DOM/функции (structured clone)
-  const safeParams = JSON.parse(JSON.stringify(params));
+function imageToImageData(image) {
+  const w = image.naturalWidth ?? image.width, h = image.naturalHeight ?? image.height;
+  const cv = document.createElement('canvas');
+  cv.width = w; cv.height = h;
+  const ctx = cv.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(image, 0, 0);
+  return ctx.getImageData(0, 0, w, h);
+}
+
+async function imageDataToBlob(imageData, type = 'image/png') {
+  const cv = document.createElement('canvas');
+  cv.width = imageData.width; cv.height = imageData.height;
+  cv.getContext('2d').putImageData(imageData, 0, 0);
+  return canvasToBlob(cv, type);
+}
+
+/** Отправляет задание в Worker; resolve → ответ { blob } или { buffer, width, height }. */
+function postToWorker(w, message, transfer) {
   return new Promise((resolve, reject) => {
     const id = ++seq;
-    pending.set(id, { resolve, reject, width, height });
-    try {
-      w.postMessage({ id, op, buffer: imageData.data.buffer, width, height, params: safeParams }, [imageData.data.buffer]);
-    } catch (err) {
-      pending.delete(id);
-      reject(err);
-    }
-  }).catch((err) => {
-    if (err?.message !== 'worker-failed') throw err;
-    // Буфер уже передан — пересобрать нельзя; вызывающий код повторит на главном потоке
-    throw new Error('worker-failed');
+    pending.set(id, { resolve, reject });
+    try { w.postMessage({ id, ...message }, transfer); }
+    catch (err) { pending.delete(id); reject(err); }
   });
 }
 
 /**
- * Удобная обёртка: выполняет операцию, при падении Worker повторяет на главном
- * потоке по копии исходных данных.
  * @param {'heal'|'adjust'} op
- * @param {ImageData} imageData  — не изменяется
+ * @param {{ blob?: Blob, image?: CanvasImageSource, imageData?: ImageData, onRetry?: () => ImageData }} source
  * @param {object} params
+ * @param {string} [type='image/png']  формат результата
+ * @returns {Promise<Blob>}
  */
-export async function runPixelOpSafe(op, imageData, params) {
-  const copy = new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
-  try {
-    return await runPixelOp(op, copy, params);
-  } catch (err) {
-    if (err?.message !== 'worker-failed') throw err;
-    const again = new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
-    return runOnMainThread(op, again, params);
+export async function processImage(op, source, params, type = 'image/png') {
+  const safeParams = JSON.parse(JSON.stringify(params));   // без ссылок на DOM/функции
+  const w = getWorker();
+
+  if (w) {
+    try {
+      let reply;
+      const bitmapSrc = source.blob instanceof Blob ? source.blob : source.image;
+      if (bitmapSrc && typeof createImageBitmap !== 'undefined') {
+        const bitmap = await createImageBitmap(bitmapSrc);
+        reply = await postToWorker(w, { op, params: safeParams, bitmap, encode: type }, [bitmap]);
+      } else {
+        const imageData = source.imageData ?? imageToImageData(await sourceImage(source));
+        const { width, height } = imageData;
+        reply = await postToWorker(w, { op, params: safeParams, buffer: imageData.data.buffer, width, height, encode: type },
+                                   [imageData.data.buffer]);
+      }
+      if (reply.blob) return reply.blob;
+      // Worker без OffscreenCanvas вернул пиксели — кодируем здесь
+      return imageDataToBlob(new ImageData(new Uint8ClampedArray(reply.buffer), reply.width, reply.height), type);
+    } catch (err) {
+      if (err?.message !== 'worker-failed') throw err;
+      // падение Worker — ниже повторяем на главном потоке
+    }
   }
+
+  const img = await sourceImage(source);
+  const imageData = img ? imageToImageData(img)
+    : (source.onRetry ? source.onRetry() : source.imageData);
+  if (!imageData) throw new Error('pixelOps: нет данных для повтора на главном потоке');
+  return imageDataToBlob(runOnMainThread(op, imageData, safeParams), type);
 }

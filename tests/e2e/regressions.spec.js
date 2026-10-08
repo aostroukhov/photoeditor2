@@ -330,3 +330,28 @@ for (const width of [390, 768]) {
     expect(await hit('.adj-panel__btn-apply')).toBe(true);
   });
 }
+
+test('#11: редактор отдаёт исходный Blob текущего изображения (heal → undo → redo)', async ({ page }) => {
+  await openEditor(page);
+  const info = async () => page.evaluate(() => {
+    const b = window.editor.getImageBlob();
+    return b instanceof Blob ? { size: b.size, type: b.type } : null;
+  });
+  // fixture грузит через setImage(data:) — Blob появляется после baseline-снапшота истории
+  await page.waitForFunction(() => window.editor.getImageBlob() instanceof Blob);
+  expect((await info())?.type).toBe('image/png');
+  await startTool(page, 'heal');
+  await dragOnCanvas(page, [0.3, 0.3], [0.4, 0.4], 6);
+  await page.waitForTimeout(600);
+  const before = await imgSrc(page);
+  await panelBtn(page, 'heal', 'apply').click();
+  await waitForImageChange(page, before);
+  const b1 = await info();
+  expect(b1?.type).toBe('image/png');                // результат Worker — PNG Blob
+  await page.click('[data-action="undo"]');
+  await waitForImageChange(page, await imgSrc(page));
+  expect(await info()).not.toBeNull();               // снапшот истории тоже с Blob
+  await page.click('[data-action="redo"]');
+  await waitForImageChange(page, await imgSrc(page));
+  expect((await info())?.size).toBe(b1.size);
+});
