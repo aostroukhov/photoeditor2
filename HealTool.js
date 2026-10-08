@@ -339,10 +339,10 @@ export class HealTool extends ToolBase {
   buildPanel() {
     const panel = document.createElement('div');
     panel.innerHTML = `
-      ${ToolBase.panelHeader({ title: 'Восстанавливающая кисть', prefix: 'heal-panel', applyTitle: 'Применить в полном разрешении' })}
+      ${ToolBase.panelHeader({ title: 'Ретушь', prefix: 'heal-panel', applyTitle: 'Применить в полном разрешении' })}
 
       <div class="pe-panel__row">
-        <label class="heal-panel__lbl" title="Радиус кисти ([ и ] для изменения)">
+        <label class="heal-panel__lbl" title="Радиус кисти. Клавиши [ и ] уменьшают/увеличивают">
           <span class="heal-panel__lbl-text">Размер</span>
           <input type="range" class="heal-panel__brush-size"
                  min="${CFG.minBrushSize}" max="${CFG.maxBrushSize}"
@@ -370,7 +370,7 @@ export class HealTool extends ToolBase {
       </div>
 
       <div class="pe-panel__hint">
-        Закрасьте дефект · предпросмотр — автоматически · [ / ] — размер
+        Закрасьте дефект — предпросмотр появится сам
       </div>`;
 
     const sizeEl  = panel.querySelector('.heal-panel__brush-size');

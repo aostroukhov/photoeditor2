@@ -112,26 +112,41 @@
   }
 }
 
-@media (max-width: 25em) { // 400px
+// 600–896px: 12 кнопок по 4em не помещаются (768px: «Закрыть» обрезан) — уже
+@media (max-width: 56em) {
   .pe-toolbar {
-    &__btn     { min-width: 2.875em; padding: 0.375em; }
-    &__label   { display: none; }
+    &__btn   { min-width: 3.25em; padding: 0.5em 0.375em 0.4em; }
+    &__label { font-size: 0.625em; }
   }
 }
 
 
 // ── Мобильная адаптация тулбара (≤ 600px) ─────────────────────────────────────
 // Уменьшаем высоту тулбара чтобы больше места отдать изображению
+// Телефоны: 12 кнопок в одну строку не помещаются (390px: Экспорт, О редакторе
+// и Закрыть уходили за край, закрыть редактор было нельзя — issue #8).
+// Две строки: инструменты сверху, действия снизу; все кнопки на экране.
 @media (max-width: 37.5em) {
   .photoeditor__container {
-    --pe-toolbar-h: 3.5em; // 56px вместо 72px
+    --pe-toolbar-h: 6.5em; // две строки по 3.25em
   }
 
   .pe-toolbar {
+    flex-wrap: wrap;
+
+    &__group {
+      flex: 1 0 100%;
+      min-height: 3.25em;
+
+      &--tools   { justify-content: space-around; }
+      &--actions { border-top: 1px solid hsla(0,0%,100%,.1); justify-content: space-around; margin-left: 0; }
+    }
+
     &__btn {
-      min-width: 2.625em;
-      padding: 0.375em 0.375em 0.3em;
+      flex: 1 1 0;
       gap: 0.25em;
+      min-width: 0;
+      padding: 0.375em 0.25em 0.3em;
     }
 
     // На мобиле всегда скрываем подписи кнопок тулбара

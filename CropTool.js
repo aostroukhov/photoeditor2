@@ -510,11 +510,11 @@ export class CropTool extends ToolBase {
     panel.innerHTML = `
       <div class="pe-panel__crop-toolbar" role="toolbar" aria-label="Кадрирование">
         <button type="button" class="pe-panel__crop-tb-btn" data-action="rotate-ccw"
-                title="Повернуть 90° влево" aria-label="Повернуть 90° влево">
+                title="Повернуть против часовой стрелки" aria-label="Повернуть против часовой стрелки">
           <i class="icon-image-rotate-round-ccw" aria-hidden="true"></i>
         </button>
         <button type="button" class="pe-panel__crop-tb-btn" data-action="rotate-cw"
-                title="Повернуть 90° вправо" aria-label="Повернуть 90° вправо">
+                title="Повернуть по часовой стрелке" aria-label="Повернуть по часовой стрелке">
           <i class="icon-image-rotate-round-cw" aria-hidden="true"></i>
         </button>
         ${!this._externalAspect ? `<div class="pe-panel__crop-sep"></div>${ratioButtons}` : ''}

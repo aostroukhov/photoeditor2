@@ -48,7 +48,7 @@
   // Модификаторы
   &--compact {
     font-size: 0.75em;    // 12px
-    min-height: $btn-h-compact;
+    min-height: 2.75em;   // 33px — цель для мыши не меньше 32px (issue #9)
     padding: 0 0.625em;
   }
 

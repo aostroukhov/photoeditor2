@@ -185,7 +185,11 @@ export const EditorConfig = {
      *     },
      *   ];
      */
-    //presets: [],  // по умолчанию пусто — заполняется в конфиге проекта
+    /**
+     * Пресеты ниже — проектные (oinfo.ru). Для других проектов передавайте свои через
+     * new PhotoEditor({ overlayOptions: { presets: [...] } }) — опция имеет приоритет.
+     * Пустой список ([]) отключает блок «Пресеты».
+     */
 		presets: [
 				{id: 'oinfo', label: 'ОИНФО', items: [{ type:'image', src:'/images/overlay/ОИНФО-shadow.png', xPct:0.5, yPct:0.7, wPct:0.25, opacity:0.7 }]},
 				{id: 'oinfo.ru', label: 'oinfo.ru', items: [{ type:'image', src:'/images/overlay/oinfo.ru-shadow.png', xPct:0.5, yPct:0.7, wPct:0.25, opacity:0.7 }]},
@@ -194,12 +198,12 @@ export const EditorConfig = {
 				//{id: 'odintsovoBot', label: 'odintsovoBot', items: [{ type:'image', src:'/images/overlay/t.me-odintsovoBot-shadow.png', xPct:0.5, yPct:0.7, wPct:0.25, opacity:0.7 }]},
 				{id: 't.me-oinfo_news', label: 't.me-oinfo_news', items: [{ type:'image', src:'/images/overlay/t.me-oinfo_news-shadow.png', xPct:0.5, yPct:0.7, wPct:0.25, opacity:0.7 }]},
 				{id: 't.me-oinfo_chat', label: 't.me-oinfo_chat', items: [{ type:'image', src:'/images/overlay/t.me-oinfo_chat-shadow.png', xPct:0.5, yPct:0.7, wPct:0.25, opacity:0.7 }]},
-				{id: 'oib', label: 'ОИ', items: [{ type:'image', src:'/images/overlay/08_oi-black.png', xPct:0.5, yPct:0.7, wPct:0.1, opacity:0.7 }]},
-				{id: 'oiw', label: 'ОИ', items: [{ type:'image', src:'/images/overlay/08_oi-white.png', xPct:0.5, yPct:0.7, wPct:0.1, opacity:0.7 }]},
-				{id: 'oic', label: 'ОИ', items: [{ type:'image', src:'/images/overlay/08_oi-color.png', xPct:0.5, yPct:0.7, wPct:0.1, opacity:0.7 }]},
+				{id: 'oib', label: 'ОИ чёрный', items: [{ type:'image', src:'/images/overlay/08_oi-black.png', xPct:0.5, yPct:0.7, wPct:0.1, opacity:0.7 }]},
+				{id: 'oiw', label: 'ОИ белый', items: [{ type:'image', src:'/images/overlay/08_oi-white.png', xPct:0.5, yPct:0.7, wPct:0.1, opacity:0.7 }]},
+				{id: 'oic', label: 'ОИ цветной', items: [{ type:'image', src:'/images/overlay/08_oi-color.png', xPct:0.5, yPct:0.7, wPct:0.1, opacity:0.7 }]},
 				{id: 't.me-odiauto-shadow.png', label: 't.me-odiauto', items: [{ type:'image', src:'/images/overlay/t.me-odiauto-shadow.png', xPct:0.5, yPct:0.7, wPct:0.18, opacity:0.75 }]},
-				{id: 'autow', label: 'Авто', items: [{ type:'image', src:'/images/overlay/03_Автогруппа-белый.png', xPct:0.5, yPct:0.7, wPct:0.12, opacity:0.7 }]},
-				{id: 'autob', label: 'Авто', items: [{ type:'image', src:'/images/overlay/03_Автогруппа-черный.png', xPct:0.5, yPct:0.7, wPct:0.12, opacity:0.7 }]}
+				{id: 'autow', label: 'Авто белый', items: [{ type:'image', src:'/images/overlay/03_Автогруппа-белый.png', xPct:0.5, yPct:0.7, wPct:0.12, opacity:0.7 }]},
+				{id: 'autob', label: 'Авто чёрный', items: [{ type:'image', src:'/images/overlay/03_Автогруппа-черный.png', xPct:0.5, yPct:0.7, wPct:0.12, opacity:0.7 }]}
 			]
 
   },
