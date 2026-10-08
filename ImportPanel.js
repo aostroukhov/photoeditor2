@@ -58,6 +58,7 @@ export class ImportPanel {
 
     // Ctrl+V
     this._onPaste = (e) => {
+      if (this.photoEditor.isBusy) return;   // не подменять изображение, пока apply в Worker
       for (const item of e.clipboardData?.items ?? []) {
         if (item.type.startsWith('image/')) {
           const blob = item.getAsFile();

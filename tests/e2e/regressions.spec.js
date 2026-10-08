@@ -192,3 +192,53 @@ test('CMS-flow: ошибка async export оставляет редактор о
   await expect(page.locator('.photoeditor__container')).toBeVisible();
   expect(await page.evaluate(() => window.editorClosed)).toBeUndefined();
 });
+
+async function loadBigImage(page) {
+  await page.evaluate(async () => {
+    const cv = document.createElement('canvas'); cv.width = 4000; cv.height = 3000;
+    const ctx = cv.getContext('2d'); const g = ctx.createLinearGradient(0, 0, 4000, 3000); g.addColorStop(0, '#f80'); g.addColorStop(1, '#08f');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, 4000, 3000);
+    const blob = await new Promise(r => cv.toBlob(r, 'image/png'));
+    await window.editor.setImageBlob(blob, { fileName: 'big.png' });
+  });
+  await expect(page.locator('.photoeditor__info')).toHaveText('4000×3000');
+}
+
+test('busy: Ctrl+Z во время apply в Worker игнорируется, история не ломается', async ({ page }) => {
+  await openEditor(page);
+  await loadBigImage(page);
+  await startTool(page, 'adjust');
+  await page.evaluate(() => { const el = document.querySelector('.adj-panel__range[data-param="exposure"]'); el.value = '-60'; el.dispatchEvent(new Event('input', { bubbles: true })); });
+  const before = await imgSrc(page);
+  await panelBtn(page, 'adjust', 'apply').click();
+  await expect(page.locator('.photoeditor__container')).toHaveClass(/is-busy/);
+  await page.keyboard.press('Control+z');
+  await waitForImageChange(page, before);
+  await expect(page.locator('.photoeditor__container')).not.toHaveClass(/is-busy/);
+  await expect(page.locator('.pe-history-badge')).toHaveText('2/20');     // [исходное, фото, коррекция]
+  await expect(page.locator('[data-action="redo"]')).toBeDisabled();
+  const applied = await imgSrc(page);
+  await page.click('[data-action="undo"]');
+  await waitForImageChange(page, applied);
+  expect(await page.evaluate(() => window.editor.img.naturalWidth)).toBe(4000);   // вернулись к фото без коррекции, а не к 800×600
+});
+
+test('busy: Escape и requestClose во время apply не закрывают редактор молча', async ({ page }) => {
+  await openEditor(page);
+  await loadBigImage(page);
+  await startTool(page, 'heal');
+  await dragOnCanvas(page, [0.4, 0.4], [0.5, 0.5], 6);
+  await page.waitForTimeout(600);
+  const before = await imgSrc(page);
+  await panelBtn(page, 'heal', 'apply').click();
+  await expect(page.locator('.photoeditor__container')).toHaveClass(/is-busy/);
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => window.editor.requestClose());     // как window.photoEditorCms.close()
+  await expect(page.locator('.photoeditor__container')).toBeVisible();
+  await waitForImageChange(page, before);
+  // Отложенный requestClose сработал после завершения: изменения есть → диалог
+  await expect(page.locator('.pe-close-confirm')).toBeVisible();
+  await page.locator('.pe-close-confirm__btn--primary').click();   // «Нет»
+  await expect(page.locator('.photoeditor__container')).toBeVisible();
+  expect(await page.evaluate(() => window.editorClosed)).toBeUndefined();
+});

@@ -94,7 +94,7 @@
 // Длительная операция (apply в Worker): тулбар не принимает клики,
 // поверх изображения — спиннер.
 .photoeditor__container.is-busy {
-  .pe-toolbar { pointer-events: none; opacity: .6; }
+  .pe-toolbar, .pe-panel { pointer-events: none; opacity: .6; }
   .photoeditor__img-container::after {
     animation: pe-spin .8s linear infinite;
     border: 3px solid hsla(0,0%,100%,.25);

@@ -117,40 +117,49 @@ export function recognizeShape(pts) {
   if (!isClosed) return null; // незамкнутые — только стрелка (прямая линия)
 
   const aspectRatio = w / h;
-  let sum = 0;
-  const dists = pts.map(p => { const d = Math.hypot(p.x - cx, p.y - cy); sum += d; return d; });
-  const avgD  = sum / dists.length;
-  let variance = 0;
-  for (const d of dists) variance += (d - avgD) ** 2;
-  const cv = Math.sqrt(variance / dists.length) / avgD;
   const cornerCount = countCorners(pts);
+
+  // «Вдавленность» контура относительно bbox: у прямоугольника точки лежат на
+  // границе bbox (≈0), у эллипса в диагональных направлениях отстоят от неё
+  // (среднее ≈0.19 независимо от пропорций). Раньше использовался разброс
+  // радиуса от центра — он работал только для круга, вытянутый эллипс уходил
+  // в «прямоугольник».
+  const hw = w / 2, hh = h / 2;
+  let inset = 0;
+  for (const p of pts) inset += Math.min(1 - Math.abs(p.x - cx) / hw, 1 - Math.abs(p.y - cy) / hh);
+  inset /= pts.length;
 
   const square = () => { const side = (w + h) / 2; return makeRect(cx - side / 2, cy - side / 2, side, side, 'square'); };
 
   // Явные углы (≥ 3) → прямоугольник/квадрат
   if (cornerCount >= 3) return Math.abs(aspectRatio - 1) < 0.25 ? square() : makeRect(minX, minY, w, h, 'rect');
 
-  // Нет углов и малый разброс радиуса → круг/эллипс
-  if (cv < 0.20) {
+  // Нет углов, контур заметно отходит от bbox → круг/эллипс
+  if (inset > 0.08) {
     if (Math.abs(aspectRatio - 1) < 0.25) return makeEllipse(cx, cy, Math.max(w, h) / 2, Math.max(w, h) / 2, 'circle');
     return makeEllipse(cx, cy, w / 2, h / 2, 'ellipse');
   }
 
-  // Мало углов + высокий разброс → прямоугольник, нарисованный неровно
+  // Мало углов, но контур идёт по bbox → прямоугольник, нарисованный неровно
   return Math.abs(aspectRatio - 1) < 0.25 ? square() : makeRect(minX, minY, w, h, 'rect');
 }
 
-/** Угловые точки с нормализованным шагом (~7% траектории); угол > ~72° — угловой. */
-function countCorners(pts) {
+/**
+ * Угловые точки: угол между хордами до/после точки (окно ~7% траектории) > ~72°.
+ * Проверяется КАЖДАЯ точка; соседние срабатывания в пределах окна считаются одним
+ * углом. Раньше проверялись только индексы с шагом step/2 от step — при равномерной
+ * оцифровке углы прямоугольника попадали между проверками, и фигура уходила в «эллипс».
+ */
+export function countCorners(pts) {
   const n    = pts.length;
   const step = Math.max(3, Math.round(n * 0.07));
-  let corners = 0;
-  for (let i = step; i < n - step; i += Math.max(1, Math.round(step / 2))) {
+  let corners = 0, lastCorner = -Infinity;
+  for (let i = step; i < n - step; i++) {
     const ax = pts[i].x - pts[i - step].x,     ay = pts[i].y - pts[i - step].y;
     const bx = pts[i + step].x - pts[i].x,     by = pts[i + step].y - pts[i].y;
     const lenA = Math.hypot(ax, ay), lenB = Math.hypot(bx, by);
     if (lenA < 2 || lenB < 2) continue;
-    if ((ax * bx + ay * by) / (lenA * lenB) < 0.3) corners++;
+    if ((ax * bx + ay * by) / (lenA * lenB) < 0.3 && i - lastCorner >= step) { corners++; lastCorner = i; }
   }
   return corners;
 }

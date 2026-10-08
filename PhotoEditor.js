@@ -131,7 +131,8 @@ export class PhotoEditor {
    * правками. Текст задаёт браузер; нам достаточно отменить событие.
    */
   #onBeforeUnloadBound = (e) => {
-    if (!this.#isDirty) return;
+    // Незавершённый apply (Worker) — тоже несохранённая правка
+    if (!this.#isDirty && !this.isBusy) return;
     e.preventDefault();
     e.returnValue = '';
   };
@@ -146,8 +147,14 @@ export class PhotoEditor {
   /** Число активных длительных операций (см. setBusy). */
   #busyCount = 0;
 
+  /** true — идёт долгая операция (apply в Worker): ввод и история блокируются. */
+  get isBusy() { return this.#busyCount > 0; }
+
   /** true — идёт undo/redo (защита от двойного нажатия до загрузки снапшота). */
   #stepping = false;
+
+  /** true — requestClose() отложен до конца долгой операции. */
+  #closeAfterBusy = false;
 
 
   // ── Публичные поля ─────────────────────────────────────────────────────────
@@ -582,6 +589,22 @@ export class PhotoEditor {
   requestClose() {
     if (!this.container) return;
 
+    // Ждём завершения долгой операции (внешний вызов из CMS): иначе #isDirty ещё
+    // false, редактор закроется молча, а результат apply придёт в закрытый редактор.
+    if (this.isBusy) {
+      if (!this.#closeAfterBusy) {
+        this.#closeAfterBusy = true;
+        const tick = () => {
+          if (!this.container) { this.#closeAfterBusy = false; return; }
+          if (this.isBusy) { setTimeout(tick, 50); return; }
+          this.#closeAfterBusy = false;
+          this.requestClose();
+        };
+        setTimeout(tick, 50);
+      }
+      return;
+    }
+
     if (!this.#isDirty) {
       this.close();
       return;
@@ -908,7 +931,7 @@ export class PhotoEditor {
     this.container.querySelector('.pe-toolbar')
       ?.addEventListener('click', (e) => {
         const btn = e.target.closest('[data-tool],[data-action]');
-        if (!btn) return;
+        if (!btn || this.isBusy) return;   // pointer-events: none не защищает от Enter на сфокусированной кнопке
         if (btn.dataset.tool)   this.#handleToolClick(btn.dataset.tool);
         if (btn.dataset.action) this.#handleActionClick(btn.dataset.action);
       });
@@ -975,6 +998,10 @@ export class PhotoEditor {
   #onKeyDown(e) {
     // Инструмент с собственным capture-слушателем уже обработал клавишу
     if (e.defaultPrevented) return;
+
+    // Долгая операция: Ctrl+Z во время apply ломал порядок истории, Escape закрывал
+    // редактор без подтверждения (результат приходил уже после закрытия).
+    if (this.isBusy) { e.preventDefault(); return; }
 
     // Клавиши внутри текстовых полей панелей принадлежат полю, а не редактору:
     // Backspace не должен удалять оверлей, стрелки — двигать его, Escape — закрывать редактор.
@@ -1130,7 +1157,7 @@ export class PhotoEditor {
   }
 
   async #undo() {
-    if (!this.#history.canUndo || this.#stepping) return;
+    if (!this.#history.canUndo || this.#stepping || this.isBusy) return;
     this.#stepping = true;
     // Приостанавливаем активный инструмент — он держит canvas-оверлей под старый размер
     const tool = this.activeTool;
@@ -1163,7 +1190,7 @@ export class PhotoEditor {
   }
 
   async #redo() {
-    if (!this.#history.canRedo || this.#stepping) return;
+    if (!this.#history.canRedo || this.#stepping || this.isBusy) return;
     this.#stepping = true;
     const tool = this.activeTool;
     tool?.suspend?.();

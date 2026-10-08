@@ -78,7 +78,7 @@
   white-space: nowrap;
 }
 
-.photoeditor__container.is-busy .pe-toolbar {
+.photoeditor__container.is-busy .pe-toolbar, .photoeditor__container.is-busy .pe-panel {
   pointer-events: none;
   opacity: 0.6;
 }
